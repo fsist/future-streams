@@ -84,18 +84,6 @@ trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
 
   /// Beyond this line are methods with concrete implementations.
 
-  /** See [[Pipe.mapSink]] */
-  def map[K](f: T => K): Source[K] = this >> Pipe.map(f)
-
-  /** See [[Pipe.flatMapSink]] */
-  def flatMap[K](f: T => Future[K]): Source[K] = this >> Pipe.flatMap(f)
-
-  /** See [[Pipe.mapInput]] */
-  def mapInput[K](f: Option[T] => Option[K]): Source[K] = this >> Pipe.mapInput(f)
-
-  /** See [[Pipe.flatMapInput]] */
-  def flatMapInput[K](f: Option[T] => Future[Option[K]]): Source[K] = this >> Pipe.flatMapInput(f)
-
   /** Combines a source with a pipe and returns a new source representing both. */
   def >>[B](pipe: Pipe[T, B, _]): Source[B] = {
     val prev = this
