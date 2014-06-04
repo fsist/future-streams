@@ -45,7 +45,6 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
         case Some(cause: E) => return // Success
         case _ => throw failed
       }
-      case other: Throwable => throw other
     }
   }
 
@@ -71,7 +70,7 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
 //      case e: TestFailedException if e.cause.isDefined && e.cause.get.isInstanceOf[AskTimeoutException] => ()
 
       // This is not a timeout
-      case e: Throwable => throw e
+//      case e: Throwable => throw e
     }
   }
 
@@ -93,7 +92,7 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
       case e if tag.runtimeClass.isInstance(e) => ()
 
       // This is not a timeout
-      case e: Throwable => throw e
+//      case e: Throwable => throw e
     }
   }
 

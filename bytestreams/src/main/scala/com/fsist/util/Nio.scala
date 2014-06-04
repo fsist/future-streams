@@ -8,6 +8,7 @@ import java.nio.ByteBuffer
 import com.typesafe.scalalogging.slf4j.Logging
 import scala.Some
 import com.fsist.stream.{Source, Sink}
+import scala.util.control.NonFatal
 
 /** Utility code to work with Java NIO async operations and Scala futures. */
 object Nio extends Logging {
@@ -43,7 +44,7 @@ object Nio extends Logging {
       case e: IOException =>
         logger.trace("Closing after IOException")
         throw new EOFException(e.getMessage)
-      case e: Throwable =>
+      case NonFatal(e) =>
         logger.error(s"Unexpected error type: $e")
         throw new EOFException(e.getMessage)
     }
@@ -83,7 +84,7 @@ object Nio extends Logging {
       //      case e: AsynchronousCloseException => throw new EOFException(e.getMessage)
       //      case e: ClosedChannelException => throw new EOFException(e.getMessage)
       case e: IOException => throw new EOFException(e.getMessage)
-      case e: Throwable =>
+      case NonFatal(e) =>
         logger.error(s"Unexpected error type: $e")
         throw new EOFException(e.getMessage)
     }

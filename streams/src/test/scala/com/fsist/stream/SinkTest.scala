@@ -5,6 +5,8 @@ import scala.collection.mutable.ListBuffer
 import com.fsist.util.CancelToken
 import scala.concurrent.{ExecutionContext, Future}
 import org.scalatest.FunSuite
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.concurrent.duration._
 
 class SinkTest extends FunSuite with FutureTester {
   implicit val cancelToken: CancelToken = CancelToken.none
@@ -33,10 +35,11 @@ class SinkTest extends FunSuite with FutureTester {
   }
 
   test("collect") {
-    val list = (1 to 1000).toList
+    // This also ensures it completes reasonably fast
+    val list = (1 to 100000).toList
     val source = Source(list: _*)
     val sink = Sink.collect[Int]
-    val result = (source >>| sink).futureValue
+    val result = (source >>| sink).futureValue(Timeout(1.second))
     assert(result == list)
   }
 }

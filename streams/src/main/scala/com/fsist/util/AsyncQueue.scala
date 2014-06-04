@@ -98,7 +98,6 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) {
   // implicit ec parameter that was sourced from an implicit val that wasn't yet initialized when we constructed the queue
   require(ec != null)
 
-
   // We use one AsyncQueue for the actual items, and another to push acknowledgement tokens backwards.
   // When the acknowledgement queue is empty, the main queue is full.
 

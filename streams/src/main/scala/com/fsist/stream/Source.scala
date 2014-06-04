@@ -6,88 +6,125 @@ import org.reactivestreams.api.{Consumer, Producer}
 import org.reactivestreams.spi.{Subscription, Subscriber, Publisher}
 import scala.async.Async._
 import scala.concurrent.{Promise, ExecutionContext, Future}
+import scala.util.control.NonFatal
 
-/** This trait combines the ReactiveStreams SPI Producer and API Publisher. Please read the ReactiveStreams
-  * documentation.
+/** A source asynchronously publishes a sequence of zero or more elements of type `T`, followed by an EOF token.
   *
-  * In addition, it adds the start() and onSourceDone methods.
+  * = Relation to Reactive Streams =
   *
-  * NOTE that the semantics of when generic ReactiveStreams Producers start actually producing elements are different
-  * from those of Source. A Producer will start sending elements as soon as a consumer subscribes and calls request().
-  * However, a Source will only start doing so after its start() method is called. This is indended to allow convenient
-  * construction of pipelines containing many source-sink+source-... pairs and calling Start only when all of them
-  * have been connected.
+  * This type extends the Reactive Streams contract of [[org.reactivestreams.api.Producer]] and
+  * [[org.reactivestreams.spi.Publisher]]. This means it only publishes elements
+  * once the connected subscriber ([[com.fsist.stream.Sink]]) has requested them via
+  * [[org.reactivestreams.spi.Subscription]]`.requestMore()`.
   *
-  * NOTE that if a Source has subscribed consumers, it will simply calculate and discard all the values it would produce
-  * normally, without waiting for anything.
+  * (The separation between [[Producer]] and [[Publisher]] will be removed in Reactive Streams 0.4, and we don't
+  * separate them.)
+  *
+  * This type has additional restrictions beyond the requirements of [[org.reactivestreams.spi.Publisher]]:
+  *
+  * 1. It is a 'cold' publisher. This means it never drops elements; it always waits for the connected Sink to request them.
+  *    This makes it suitable to represent data that already exists (in memory, in a file, etc) or can be read or
+  *    calculated on demand. It is not suitable to represent 'hot' data that is must be dropped if it is not processed
+  *    in time, such as a timer producing a tick event every second.
+  * 2. Whenever no Sink is subscribed (both on creation of the Source, and if the Sink subsequently unsubscribes),
+  *    the Source pauses and waits. Only when a Sink is subscribed and has requested an item will the next item be
+  *    produced and published.
+  * 3. Only one Sink can be subscribed at a time. This is a natural fit for 'cold' streams: each new sink expects
+  *    to read the whole stream from the start, not from the point in time when it subscribed, so each sink should
+  *    have its own source. If you need to subscribe multiple sinks to one source, use the `fanout` method.
+  *
+  * This type also adds methods that a Reactive Streams publisher does not have: see `onSourceDone`.
+  *
+  * = Representations of the element stream =
+  *
+  * Reactive Streams has three methods the publisher calls: `onNext`, `onComplete` and `onError`.
+  *
+  * This type (e.g. in `produce`) uses Option[T] where Some(t) indicates an element (sent to onNext), None indicates
+  * EOF (sent to onComplete), and a thrown exception indicates failure (sent to onError). Asynchronous components
+  * express the next state of the Source as a Future[Option[T]].
+  *
+  * = Parametrization with ExecutionContext and CancelToken =
+  *
+  * All instances of this type have an [[scala.concurrent.ExecutionContext]] and a [[com.fsist.util.CancelToken]]
+  * specified at creation. Futures created by an instance will run in its [[scala.concurrent.ExecutionContext]];
+  * you can allocate different ECs to different instances to gain fine control over scheduling. If the CancelToken
+  * of a source is cancelled, the source fails with a [[com.fsist.util.CanceledException]] (see below regarding Source
+  * states).
+  *
+  * = Possible states =
+  *
+  * Once a source has completed (published EOF), failed (published an exception), or been canceled, it will never do
+  * anything again. These events can be observed via `onSourceDone`, which completes when the source does,
+  * or fails with the corresponding exception.
+  *
+  * A Source can only have one subscriber at once. Attempts to add a second subscriber, or to add a subscriber to a
+  * source that has already completed or failed, will fail with an [[IllegalStateException]]. Note that this exception
+  * will not be thrown by the `subscribe` method synchronously; according to the Reactive Streams contract, it will
+  * be delivered asynchronously to the attempted subscriber, calling its onError instead of onSubscribe.
+  *
+  * = Creating instances =
+  *
+  * Instances can be created from external data (Iterables, generator functions, other Reactive Streams publishers, etc)
+  * via methods on the companion object. Instances can also be built from existing instances using methods on this type.
   */
 trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
-  /** Default EC used by mapping operations */
-  def ec: ExecutionContext
+  /** All futures created by this Source will run in this context. */
+  implicit def ec: ExecutionContext
 
-  /** Default cancel token inherited by mapping operations */
-  def cancelToken: CancelToken
-
-  /** Start producing elements. The returned future will complete when this source stops (either via exhaustion or with
-    * an error).
-    *
-    * May not be called more than once (although implementations should defensively make subsequent calls
-    * either idempotent or no-op failures).
-    */
-  def start(): Future[Unit]
+  /** Canceling this token will fail the source with a [[com.fsist.util.CanceledException]]. */
+  implicit def cancelToken: CancelToken
 
   /** Returns a future that is completed when the source has generated end-of-input or experienced an error (in which case
-    * the future is failed). This future may not be identical to the one returned by start(), but it should complete in
-    * the same way. */
+    * the future is failed). If the source is canceled, fails with a [[com.fsist.util.CanceledException]].
+    */
   def onSourceDone: Future[Unit]
 
-  /// Beyond this line are combinators and other methods with concrete implementations.
+  /** @return the currently connected subscriber. */
+  def subscriber: Option[Subscriber[T]]
+
+  /// Beyond this line are methods with concrete implementations.
 
   /** See [[Pipe.mapSink]] */
-  def map[K](f: T => K)(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[K] = this >> Pipe.map(f)
+  def map[K](f: T => K): Source[K] = this >> Pipe.map(f)
 
   /** See [[Pipe.flatMapSink]] */
-  def flatMap[K](f: T => Future[K])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[K] = this >> Pipe.flatMap(f)
+  def flatMap[K](f: T => Future[K]): Source[K] = this >> Pipe.flatMap(f)
 
   /** See [[Pipe.mapInput]] */
-  def mapInput[K](f: Option[T] => Option[K])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[K] = this >> Pipe.mapInput(f)
+  def mapInput[K](f: Option[T] => Option[K]): Source[K] = this >> Pipe.mapInput(f)
 
   /** See [[Pipe.flatMapInput]] */
-  def flatMapInput[K](f: Option[T] => Future[Option[K]])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[K] = this >> Pipe.flatMapInput(f)
+  def flatMapInput[K](f: Option[T] => Future[Option[K]]): Source[K] = this >> Pipe.flatMapInput(f)
 
   /** Combines a source with a pipe and returns a new source representing both. */
-  def >>[B](pipe: Pipe[T, B, _])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[B] = {
+  def >>[B](pipe: Pipe[T, B, _]): Source[B] = {
     val prev = this
     prev.subscribe(pipe)
 
     new Source[B] {
-      override def ec: ExecutionContext = ecc
-      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = prev.ec
+      override def cancelToken: CancelToken = prev.cancelToken
 
-      override def start(): Future[Unit] = {
-        prev.start()
-        pipe.start()
-      }
       override def onSourceDone: Future[Unit] = pipe.onSourceDone
       override def subscribe(subscriber: Subscriber[B]): Unit = pipe.subscribe(subscriber)
       override def produceTo(consumer: Consumer[B]): Unit = pipe.produceTo(consumer)
       override def getPublisher: Publisher[B] = pipe.getPublisher
+      override def subscriber: Option[Subscriber[B]] = pipe.subscriber
     } named s"${prev.name} >> ${pipe.name}"
   }
 
   /** Subscribe the sink to this source, start running, and return the sink's result (`Sink.resultOnDone`). */
   def >>|[R](sink: Sink[T, R])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Future[R] = {
     subscribe(sink)
-    start()
     sink.resultOnDone
   }
 
   /** Creates a Source that publishes all elements in this Source, and after it completes, all elements in the `next` Source.
     */
-  def concat(next: Source[T])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[T] = Source.concat(Seq(this, next))
+  def concat(next: Source[T]): Source[T] = Source.concat(Seq(this, next))
 
   /** Alias for `concat`. */
-  def ++(next: Source[T])(implicit ecc: ExecutionContext = ec, cancel: CancelToken = cancelToken): Source[T] = concat(next)
+  def ++(next: Source[T]): Source[T] = concat(next)
 
   /** If `next` is Some pipe, return `pipe >> next.get`, discarding the pipe's result; otherwise return this source. */
   def >>?(next: Option[Pipe[T, T, _]]): Source[T] = next match {
@@ -100,8 +137,8 @@ object Source extends Logging {
 
   /** Create a Source that generates elements from this Iterator. */
   def from[T](iter: Iterator[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = new SourceImpl[T] {
-    override val ec: ExecutionContext = ecc
-    override val cancelToken: CancelToken = cancel
+    override def ec: ExecutionContext = ecc
+    override def cancelToken: CancelToken = cancel
 
     protected def produce(): Future[Option[T]] = Future {
       if (iter.hasNext) Some(iter.next)
@@ -130,8 +167,8 @@ object Source extends Logging {
     * If the function throws an exception synchronously, it will be treated as if it returned a failed Future.
     */
   def generateM[T](stepper: => Future[Option[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = new SourceImpl[T] {
-    override val ec: ExecutionContext = ecc
-    override val cancelToken: CancelToken = cancel
+    override def ec: ExecutionContext = ecc
+    override def cancelToken: CancelToken = cancel
 
     protected def produce(): Future[Option[T]] = stepper
   } named "Source.generateM"
@@ -145,23 +182,18 @@ object Source extends Logging {
     */
   def generate[T](stepper: => Option[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] =
     new SourceImpl[T] {
-      override val ec: ExecutionContext = ecc
-      override val cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+      override def cancelToken: CancelToken = cancel
 
       protected def produce(): Future[Option[T]] = try {
         Future(stepper)
       }
       catch {
-        case e: Throwable => Future.failed(e)
+        case NonFatal(e) => Future.failed(e)
       }
     } named "Source.generate"
 
-  /** Wrap an existing Producer in a Source.
-    *
-    * NOTE the difference between generic Producers and Sources: a Source only starts producing elements after
-    * start() is called. To implement start() in the Source returned by this method, we buffer all calls to subscribe()
-    * until start() is called.
-    */
+  /** Wrap an existing Producer in a Source. */
   def from[T](producer: Producer[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] =
     new Source[T] {
       override def ec: ExecutionContext = ecc
@@ -170,37 +202,26 @@ object Source extends Logging {
       /** Completed when the producer sends EOF or error */
       private val completion = Promise[Unit]()
 
-      /** Has start() been called yet? */
-      private val started = Promise[Unit]()
-
-      override def start(): Future[Unit] = {
-        started.trySuccess(())
-        completion.future
-      }
-
       override def onSourceDone: Future[Unit] = completion.future
 
       override def produceTo(consumer: Consumer[T]): Unit = {
-        if (started.isCompleted) producer.produceTo(consumer)
-        else started.future map (_ => producer.produceTo(consumer))
+        producer.produceTo(consumer)
       }
 
       override def getPublisher: Publisher[T] = producer.getPublisher
 
       override def subscribe(subscriber: Subscriber[T]): Unit = {
-        if (started.isCompleted) producer.getPublisher.subscribe(subscriber)
-        else started.future map (_ => producer.getPublisher.subscribe(subscriber))
+        producer.getPublisher.subscribe(subscriber)
       }
+
+      /** TODO to implement this we'd need to wrap the Subscriber in a thin interface that would be subscribed,
+        * so as to capture the onSubscribe etc. calls to know who is really subscribed.
+        * And even then we couldn't support multiple subscribers, while the Producer could.
+        */
+      override def subscriber: Option[Subscriber[T]] = ???
     } named "Source.from(Producer)"
 
   /** Returns a Source that outputs the concatenated output of all these sources.
-    *
-    * NOTE that the concatenating source subscribes to and calls start() on each argument Source in turn.
-    * If any of the argument Sources are already started, then any output they produce before the concatenating Source
-    * switches to them will not appear in the concatenating Source's output.
-    *
-    * An alternative would be to subscribe to all the argument Sources immediately, and not request() anything from them
-    * until it was their turn in the concatenation. However, that would effectively block them and their other subscribers.
     *
     * TODO: replace with a custom Producer/Consumer impl that passes through calls directly and doesn't involve an extra
     * async stage and queue. This should become a PML for Producer which doesn't even depend on our custom Source.
@@ -230,12 +251,14 @@ object Source extends Logging {
           }
       } named "Source.concat internal pipe"
 
+      // Start
+      runNext()
+
       private def runNext(): Unit = {
         if (iter.hasNext) {
           val source = iter.next()
           logger.trace(s"switching to next source ${source.name}")
           source.subscribe(pipe)
-          source.start()
           source.onSourceDone map { _ =>
             // If the source fails, it will notify the pipe of completion
             logger.trace(s"source ${source.name} done")
@@ -249,20 +272,11 @@ object Source extends Logging {
         }
       }
 
-      // Lazy val to ensure start() is idempotent
-      private[this] lazy val started: Future[Unit] = {
-        logger.trace(s"Starting concat pipe")
-        pipe.start()
-        runNext()
-        success
-      }
-
-      override def start(): Future[Unit] = started
-
       override def onSourceDone: Future[Unit] = pipe.onSourceDone
       override def subscribe(subscriber: Subscriber[T]): Unit = pipe.subscribe(subscriber)
       override def produceTo(consumer: Consumer[T]): Unit = pipe.produceTo(consumer)
       override def getPublisher: Publisher[T] = pipe
+      override def subscriber: Option[Subscriber[T]] = pipe.subscriber
     } named "Source.concat"
 
   /** Converts a Future[Source] to a Source that will start producing elements after the `future` completes. */

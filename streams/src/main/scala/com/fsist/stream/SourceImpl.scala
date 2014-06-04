@@ -7,8 +7,9 @@ import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.util.Failure
 import scala.Some
-import com.fsist.stream.SourceImpl.{Subs, SubInfo}
 import scala.util.Success
+import com.fsist.stream.SourceImpl.{SubscriberInfo, SubInfo}
+import scala.util.control.NonFatal
 
 /** Base implementation of Source. Concrete implementations need to supply the `produce` method.
   *
@@ -18,22 +19,13 @@ import scala.util.Success
   * It can access and mutate state stored in the concrete class instance using that assumption.
   */
 trait SourceImpl[T] extends Source[T] {
-  implicit def ec: ExecutionContext
-
-  /** Expected to always return the same token throughout the lifetime of this instance.
-    * Canceling this token will cause the Source to fail with a CanceledException.
-    */
-  implicit def cancelToken: CancelToken
-
   def getPublisher: Publisher[T] = this
 
   def produceTo(consumer: Consumer[T]): Unit = {
     subscribe(consumer.getSubscriber)
   }
 
-  /** All current subscriptions and the amount of elements they're willing to accept.
-    * The Promise in the `Subs` is fullfilled when the count of subscribers goes from 0 to 1. */
-  private val subscribers : Atomic[Subs[T]] = new Atomic(Subs[T](Promise[Unit](), Map()))
+  @volatile private var subInfo: SubInfo[T] = SubInfo[T](Right(Promise[Unit]()))
 
   /** Must be implemented to produce the next input element to be sent to subscribers.
     *
@@ -49,14 +41,22 @@ trait SourceImpl[T] extends Source[T] {
 
   def onSourceDone: Future[Unit] = done.future
 
-  /** This lazy val ensures calling start() is idempotent. */
-  private[this] lazy val started: Unit = {
+  def subscriber: Option[Subscriber[T]] = subInfo.subscriber match {
+    case Left(SubscriberInfo(subscriber, _)) => Some(subscriber)
+    case _ => None
+  }
+
+  /** This lazy val ensures is forced the first time someone subscribes to this source.
+    * The alternative would be to start this future as soon as the source instance is created. However, that has few
+    * benefits and can cause unpleasant bugs in subclasses with initialization logic.
+    */
+  private lazy val started: Unit = {
     logger.trace(s"Starting source")
 
     // Fire and forget
     Future {
       nextStep()
-    }(ec) recover { case e: Throwable => failSource(e)}
+    }(ec) recover { case NonFatal(e) => failSource(e)}
   }
 
   // Locked to synchronize `fail`, `subscribe` and `unsubscribe` to make sure that if we fail, each subscriber is notified exactly once
@@ -70,21 +70,11 @@ trait SourceImpl[T] extends Source[T] {
       logger.error(s"Error in source: $e")
 
     done.tryFailure(e)
-    // We're synchronized, so can access `subscribers` freely without copying/updating
-    for (info <- subscribers.get.infos.values) {
-      info.subscriber.onError(e)
+    subInfo.subscriber match {
+      case Left(SubscriberInfo(sub, _)) => sub.onError(e)
+      case _ =>
     }
-    clearSubscribers()
-  }
-
-  /** Remove all subscriber info */
-  private def clearSubscribers() : Unit = subscribers.set(Subs[T](Promise[Unit](), Map()))
-
-  /** Start producing elements. The returned future will complete when the producer stops: either when produce() returns
-    * None, or when produce() returns a failed future, in which case that future will be returned. */
-  def start(): Future[Unit] = {
-    started // Force lazy val
-    done.future
+    subInfo = SubInfo(Right(Promise[Unit]()))
   }
 
   private def nextStep(): Future[Unit] = {
@@ -94,7 +84,7 @@ trait SourceImpl[T] extends Source[T] {
       logger.trace(s"Calling produce()")
       produce()
     } catch {
-      case e: Throwable =>
+      case NonFatal(e) =>
         logger.error(s"Error in produce(): $e")
         Future.failed(e)
     }
@@ -102,11 +92,14 @@ trait SourceImpl[T] extends Source[T] {
       await(fut) match {
         case Some(t) =>
           logger.trace(s"Produced element $t")
-          publishToSubs(t)
+          publishToSub(t)
         case None =>
           logger.trace(s"Produced EOF")
-          for (info <- subscribers.get.infos.values) {
-            info.subscriber.onComplete()
+          subInfo.subscriber match {
+            case Left(SubscriberInfo(sub, _)) => sub.onComplete()
+            case _ =>
+              logger.trace(s"No subscriber to see our EOF")
+            // TODO should wait for a subscriber first and then produce and publish an element
           }
           done.success(())
           done.future
@@ -114,39 +107,36 @@ trait SourceImpl[T] extends Source[T] {
     }
   }
 
-  private def publishToSub(t: T, info: SubInfo[T]): Future[Unit] = async {
-    val subName = if (logger.underlying.isTraceEnabled) {
-      if (info.subscriber.isInstanceOf[Sink[T, _]])
-        info.subscriber.asInstanceOf[Sink[T, _]].name
-      else
-        info.subscriber.toString
-    }
-    else ""
+  private def publishToSub(t: T): Future[Unit] = async {
+    val info = subInfo // Local copy to avoid races with writers
+    info.subscriber match {
+      case Left(SubscriberInfo(sub, _)) =>
+        val subName = if (logger.underlying.isTraceEnabled) {
+          if (sub.isInstanceOf[Sink[T, _]])
+            sub.asInstanceOf[Sink[T, _]].name
+          else
+            sub.toString
+        }
+        else ""
 
-    logger.trace(s"Waiting for subscriber '$subName' to request more data before publishing")
+        logger.trace(s"Waiting for subscriber '$subName' to request more data before publishing")
 
-    await(cancelToken.abandonOnCancel(info.requestedCount.decrement()))
+        await(cancelToken.abandonOnCancel(info.requestedCount.decrement()))
 
-    logger.trace(s"Publishing element to subscriber $subName")
-    info.subscriber.onNext(t)
-  }
+        logger.trace(s"Publishing element to subscriber $subName")
+        sub.onNext(t)
 
-  private def publishToSubs(t: T): Future[Unit] = async {
-    val subs = subscribers.get // Get a distinct copy to avoid races with concurrent subscribes
-    if (subs.infos.isEmpty) {
-      logger.trace(s"Waiting for subscribers before publishing")
-      await(subs.hasAny.future)
+        await(nextStep)
 
-      if (done.isCompleted) {
-        await(done.future)
-      }
-      else {
-        await(publishToSubs(t))
-      }
-    }
-    else {
-      await(Future.sequence(subs.infos.values map (publishToSub(t, _))))
-      await(nextStep)
+      case Right(promise) =>
+        logger.trace(s"Waiting for subscribers before publishing")
+        await(promise.future)
+        if (done.isCompleted) {
+          await(done.future)
+        }
+        else {
+          await(publishToSub(t))
+        }
     }
   }
 
@@ -155,44 +145,76 @@ trait SourceImpl[T] extends Source[T] {
       if (onSourceDone.isCompleted) {
         onSourceDone.value.get match {
           case Success(_) =>
-            logger.error("This Source is already completed and cannot be subscribed to.")
-            subscriber.onError(new IllegalStateException("This Source is already completed and cannot be subscribed to."))
+            val err = "This Source is already completed and cannot be subscribed to."
+            logger.error(err)
+            subscriber.onError(new IllegalStateException(err))
           case Failure(e) => subscriber.onError(e)
         }
       }
-      else {
-        val sub = new Subscription {
-          def cancel(): Unit = unsubscribe(this)
-          def requestMore(elements: Int): Unit = request(this, elements)
-        }
-        val info = SubInfo(subscriber, new AsyncSemaphore())
-
-        // Update atomically and return the Promise that should be fulfilled after the update succeeds, if any
-        val promise = subscribers.update[Promise[Unit]] { subs =>
-          val newSubs =
-            if (subs.infos.isEmpty) Subs[T](Promise[Unit](), Map[Subscription, SubInfo[T]](sub -> info))
-            else subs.copy(infos = subs.infos + (sub -> info))
-          (newSubs, subs.hasAny)
-        }
-        promise.trySuccess(())
-
-        subscriber.onSubscribe(sub)
+      else subInfo.subscriber match {
+        case Left(otherSub) =>
+          val err = s"This Source already has a subscriber and another cannot be added."
+          logger.error(err)
+          subscriber.onError(new IllegalStateException(err))
+        case Right(promise) =>
+          val subscription = new Subscription {
+            def cancel(): Unit = unsubscribe(this)
+            def requestMore(elements: Int): Unit = request(this, elements)
+          }
+          subInfo = SubInfo(Left(SubscriberInfo(subscriber, subscription)))
+          logger.trace(s"Added subscriber")
+          subscriber.onSubscribe(subscription)
+          promise.success(())
+          started // Force lazy val
       }
     }
 
   /** Remove this subscription. Equivalent to sub.cancel() */
   def unsubscribe(sub: Subscription): Unit = failureLock.synchronized {
-    subscribers.update1{ subs => subs.copy(infos = subs.infos - sub)}
+    subInfo.subscriber match {
+      case Left(SubscriberInfo(_, sub2)) if sub2 eq sub =>
+        logger.trace(s"Removed subscriber")
+        subInfo = SubInfo(Right(Promise[Unit]()))
+      case Left(_) =>
+        logger.error(s"Wrong subscription, cannot unsubscribe")
+      case _ =>
+        logger.error("No subscriber, cannot unsubscribe")
+    }
   }
 
   /** Request more elements for this subscription. Equivalent to sub.requestMore(count) */
   def request(sub: Subscription, count: Int): Unit = {
-    val info = subscribers.get.infos.get(sub).get
-    info.requestedCount.increment(count)
+    // Local copy to prevent races with writer
+    val info = subInfo
+    info.subscriber match {
+      case Left(SubscriberInfo(_, sub2)) if sub2 eq sub =>
+        logger.trace(s"Subscriber requested $count more")
+        info.requestedCount.increment(count)
+      case Left(_) =>
+        logger.error(s"request() called with wrong Subscription")
+      case _ =>
+        logger.error(s"request() called but we don't have a subscriber")
+    }
   }
 }
 
 object SourceImpl {
-  private case class SubInfo[T](subscriber: Subscriber[T], requestedCount: AsyncSemaphore)
-  private case class Subs[T](hasAny: Promise[Unit], infos: Map[Subscription, SubInfo[T]])
+
+  /** These are in a class to be replaced atomically together in the SourceImpl instance, when someone subscribes
+    * or unsubscribes.
+    *
+    * @param subscriber either a subscriber, or a promise that will be fulfilled after a subscriber has been
+    *                   subscribed and the subInfo field in the class has been changed to a value that includes
+    *                   a subscriber.
+    * @param requestedCount count of items requested and not yet supplied by the subscriber in this instance.
+    */
+  private case class SubInfo[T](subscriber: Either[SubscriberInfo[T], Promise[Unit]],
+                                requestedCount: AsyncSemaphore)
+
+  private object SubInfo {
+    def apply[T](subscriber: Either[SubscriberInfo[T], Promise[Unit]])(implicit ec: ExecutionContext) : SubInfo[T] =
+      SubInfo(subscriber, new AsyncSemaphore())
+  }
+
+  private case class SubscriberInfo[T](subscriber: Subscriber[T], subscription: Subscription)
 }

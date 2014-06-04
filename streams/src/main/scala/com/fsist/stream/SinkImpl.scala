@@ -5,6 +5,7 @@ import com.fsist.util.{BugException, AsyncQueue}
 import org.reactivestreams.spi.{Subscriber, Subscription}
 import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
+import scala.util.control.NonFatal
 
 /** Base implementation of Sink. Concrete implementations need to supply the `process` method, and can optionally
   * override `onComplete` and/or `onError`. Instances can also be created using the factory methods on [[Sink]].
@@ -44,7 +45,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   // Start on the EC, not on the thread that accessed the lazy val!
   // This creates a Futuer[Future[Unit]], but we don't care.
     Future(nextStep() recover {
-      case e: Throwable => failSink(e, true)
+      case NonFatal(e) => failSink(e, true)
     })(ec)
 
   /** This central method is called whenever the sink fails irreversibly due to an error in `process` or, theoretically,
@@ -87,7 +88,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
       process(input).toTry
     }
     catch {
-      case e: Throwable =>
+      case NonFatal(e) =>
         logger.error(s"process($input) failed with $e")
         Future.failed(e)
     })

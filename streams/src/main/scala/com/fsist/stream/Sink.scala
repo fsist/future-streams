@@ -5,6 +5,7 @@ import org.reactivestreams.spi.{Subscription, Subscriber}
 import scala.collection.mutable.ListBuffer
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.Some
+import scala.util.control.NonFatal
 
 /** This trait combines the ReactiveStreams SPI Consumer and API Subscriber. Please read the ReactiveStreams
   * documentation.
@@ -104,7 +105,7 @@ object Sink {
       }
     }
     catch {
-      case e: Throwable => Future.failed(e)
+      case NonFatal(e) => Future.failed(e)
     }
   } named "Sink.foreach"
 
@@ -123,7 +124,7 @@ object Sink {
       }
     }
     catch {
-      case e: Throwable => Future.failed(e)
+      case NonFatal(e) => Future.failed(e)
     }
   } named "Sink.foreachInput"
 
@@ -141,7 +142,7 @@ object Sink {
       f(t) map (_ => t.isEmpty)
     }
     catch {
-      case e: Throwable => Future.failed(e)
+      case NonFatal(e) => Future.failed(e)
     }
   } named "Sink.foreachInputM"
 
@@ -160,7 +161,7 @@ object Sink {
       }) map (_ => input.isEmpty)
     }
     catch {
-      case e: Throwable => Future.failed(e)
+      case NonFatal(e) => Future.failed(e)
     }
   } named "Sink.foreachM"
 
@@ -173,7 +174,7 @@ object Sink {
 
   /** Returns a Sink that collects all results in a List[T]. */
   def collect[T]()(implicit ecc: ExecutionContext): Sink[T, List[T]] = new SinkImpl[T, List[T]] {
-    override implicit def ec: ExecutionContext = ecc
+    override def ec: ExecutionContext = ecc
 
     private val buffer = ListBuffer[T]()
 
