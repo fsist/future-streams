@@ -6,19 +6,20 @@ import org.reactivestreams.spi.{Subscriber, Subscription}
 import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.util.control.NonFatal
+import java.util.concurrent.atomic.AtomicReference
 
-/** Base implementation of Sink. Concrete implementations need to supply the `process` method, and can optionally
-  * override `onComplete` and/or `onError`. Instances can also be created using the factory methods on [[Sink]].
+/** Base for Future-based mutable state machine implementations of [[Sink]].
   *
-  * To keep the design simple, there is a write-once cell for the subscription. The methods onError, onComplete
-  * and onNext will only be called when that cell has been set. A nicer design might have separate types, one without
-  * the subscription and one with, but that conflicts with the ReactiveStreams API design.
+  * Concrete implementations need to supply the `process` method. This method will be called non-concurrently for each
+  * input element and the EOF token.
+  *
+  * Note well the requirements detailed in the doc comment on `process`.
   */
 trait SinkImpl[T, R] extends Sink[T, R] {
   implicit def ec: ExecutionContext
 
   /** Set exactly once when we are subscribed. A Sink doesn't support resubscribing to a different Source. */
-  @volatile private var subscription: Subscription = _
+  private var subscription: AtomicReference[Subscription] = new AtomicReference[Subscription]()
 
   private val buffer: AsyncQueue[Option[T]] = new AsyncQueue[Option[T]]()
 
@@ -35,6 +36,21 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     * process only by returning true or false from `process`.
     */
   private val sinkDonePromise: Promise[Unit] = Promise[Unit]()
+
+  /** Called non-concurrently to process each subsequent element. After it is called for EOF (None), it will not be
+    * called again.
+    *
+    * The implementation MUST complete `resultPromise` deterministically at some point after a future it returns
+    * completes with `true`. Otherwise, `this.result` and `this.resultOnDone` will never complete.
+    *
+    * @return a future whose value can be `true` to signal that the Sink should stop (unsubscribe, call `result` and
+    *         complete the `onSinkDone` future) or `false` to signal that the Sink should continue.
+    *         If you return `false` after seeing end-of-input (`None`), and the user doesn't resubscribe us to another
+    *         Source later, then this Sink will never complete.
+    *         If the future returned fails, the Sink is treated as having failed and this function will not be called
+    *         again.
+    */
+  protected def process(input: Option[T]): Future[Boolean]
 
   /** Start running the state machine when this value is first accessed. This normally happens on the first subscription.
     *
@@ -113,7 +129,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     }
     else if (input.isDefined) {
       logger.trace(s"Requesting more input")
-      requestMore(1)
+      subscription.get.requestMore(1)
       await(nextStep())
     }
     else {
@@ -125,20 +141,21 @@ trait SinkImpl[T, R] extends Sink[T, R] {
 
   /** Cancel our linked subscription (if any). */
   def cancelSubscription(): Unit = {
-    subscription match {
-      case null =>
-      case sub => sub.cancel()
+    val prev = subscription.get
+    if (prev != null) {
+      prev.cancel()
     }
   }
 
-  private def requestMore(n: Int): Unit = subscription.requestMore(n)
+  def onSubscribe(sub: Subscription): Unit = {
+    if (! subscription.compareAndSet(null, sub)) {
+      logger.error(s"Already subscribed, cannot resubscribe")
+    }
 
-  def onSubscribe(subscription: Subscription): Unit = {
     // Make sure the state machine is running
     started
 
-    this.subscription = subscription
-    subscription.requestMore(1)
+    sub.requestMore(1)
   }
 
   /** By default, logs the error; can be overridden. */
@@ -156,26 +173,6 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   }
 
   def getSubscriber: Subscriber[T] = this
-
-  /** Called to process the next element. This always runs on the `ec` ExecutionContext, so it can be a synchronous
-    * implementation if desired.
-    *
-    * Treated as non-reentrant; guaranteed not to be called again until the future returned from the previous call has
-    * completed.
-    *
-    * None is passed in to signal the end of input.
-    *
-    * The implementation MUST complete `resultPromise` deterministically at some point after a future it returns
-    * completes with `true`. Otherwise, onSinkDone will not complete either, since it exposes the same result.
-    *
-    * @return a future whose value can be `true` to signal that the Sink should stop (unsubscribe, call `result` and
-    *         complete the `onSinkDone` future) or `false` to signal that the Sink should continue.
-    *         If you return `false` after seeing end-of-input (`None`), and the user doesn't resubscribe us to another
-    *         Source later, then this Sink will never complete.
-    *         If the future returned fails, the Sink is treated as having failed and this function will not be called
-    *         again.
-    */
-  protected def process(input: Option[T]): Future[Boolean]
 }
 
 object SinkImpl {

@@ -4,13 +4,17 @@ import scala.concurrent.{Future, Promise, ExecutionContext}
 
 /** A semaphore that provides a Future to those trying to acquire it, instead of blocking.
   *
+  * Concurrent attempts to decrement to not succeed in any guaranteed order. 
+  *
   * The implementation is a naive one based on a lock; a lock-free implementation using atomic references should be
-  * possible but I didn't bother.
+  * possible but I didn't bother. (It would have to create a Tuple to wrap every pair of (count, promise), and would
+  * that really help performance?)
   */
 class AsyncSemaphore(initialCount: Long = 0)(implicit ec: ExecutionContext) {
   import AsyncSemaphore._
 
   @volatile private var count : Long = initialCount
+  // Will be fulfilled when the count is increased from 0, and replaced with a new promise
   @volatile private var promise : Promise[Unit] = Promise[Unit]()
   private val lock = new AnyRef
 

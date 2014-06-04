@@ -12,7 +12,7 @@ object BytePipe {
   /** Take these many bytes, produce them as the result, and forward all other bytes unmodified.
     *
     * If fewer than `count` bytes are present in the input stream, the `result` fails with a [[NotEnoughInputException]]. */
-  def take(count: Int)(implicit ecc: ExecutionContext, cancel: CancelToken) : Pipe[ByteString, ByteString, ByteString] =
+  def take(count: Int)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pipe[ByteString, ByteString, ByteString] =
     new PipeSegment[ByteString, ByteString, ByteString] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel

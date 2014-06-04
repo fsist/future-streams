@@ -12,7 +12,7 @@ import scala.concurrent.{ExecutionContext, Promise, Future}
   *
   * Attribution: base implementation (enqueue/dequeue part) copied from
   * https://groups.google.com/forum/#!topic/scala-user/lyoAdNs3E1o
-  * Originally by Viktor Klang, Akka Tech Lead
+  * Originally by Viktor Klang.
   *
   * Implementation notes:
   *

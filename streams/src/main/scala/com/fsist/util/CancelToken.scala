@@ -8,6 +8,8 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
   * An existing black-box process can't be magically made cancellable.
   *
   * The general use pattern is to pass an implicit cancel token to and through library methods to make it available.
+  *
+  * Create instances using the companion object `apply`.
   */
 class CancelToken private (val promise: Promise[Unit], allowCancel: Boolean = true) {
   /** @return true iff the token is already canceled. */
@@ -25,6 +27,7 @@ class CancelToken private (val promise: Promise[Unit], allowCancel: Boolean = tr
 
   /** Cancel this token.
     * @return true if we canceled it; false if it was already canceled.
+    * @throws IllegalArgumentException if you try to cancel `CancelToken.none`.
     */
   def cancel(): Boolean = if (allowCancel) promise.trySuccess(()) else throw new IllegalArgumentException("This token doens't allow cancellation")
 

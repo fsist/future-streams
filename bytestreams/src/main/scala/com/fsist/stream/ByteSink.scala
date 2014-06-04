@@ -1,10 +1,11 @@
 package com.fsist.stream
 
 import akka.util.ByteString
-import com.fsist.util.CancelToken
+import com.fsist.util.{Nio, CancelToken}
 import java.io.OutputStream
 import scala.concurrent.blocking
 import scala.concurrent.{Future, ExecutionContext}
+import java.nio.channels.AsynchronousByteChannel
 
 /** Functions to create and work with types extending Sink[ByteString, _]. */
 object ByteSink {
@@ -31,7 +32,7 @@ object ByteSink {
     * WARNING: an OutputStream is inherently blocking, and this consumes a thread for each stream wrapped in this way,
     * which is inefficient and does NOT scale. Avoid this method unless you absolutely have to wrap a legacy OutputStream.
     */
-  def toStreamAvoidThis(stream: OutputStream)(implicit ecc: ExecutionContext, cancel: CancelToken) : Sink[ByteString, Unit] =
+  def toStreamAvoidThis(stream: OutputStream)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Sink[ByteString, Unit] =
     new SinkImpl.WithoutResult[ByteString] {
       override def ec: ExecutionContext = ecc
       override protected def process(input: Option[ByteString]): Future[Boolean] = {
@@ -52,4 +53,7 @@ object ByteSink {
       }
     } named "ByteSink.toStream"
 
+  /** Returns a Sink that writes to this channel. */
+  def apply(channel: AsynchronousByteChannel)(implicit ec: ExecutionContext): Sink[ByteString, Unit] =
+    Sink.foreachM(Nio.write(channel, _))
 }

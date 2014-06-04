@@ -7,14 +7,17 @@ import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.Some
 import scala.util.control.NonFatal
 
-/** This trait combines the ReactiveStreams SPI Consumer and API Subscriber. Please read the ReactiveStreams
-  * documentation.
+/** A Sink receives data from a [[com.fsist.stream.Source]] and asynchronously signals it back when it is ready to receive more.
+  * It may have some side effects, and/or calculate a result of type `R`.
   *
-  * In addition, a Sink can calculate a result of type `R`. This result is available from the future returned by the
-  * `onSinkDone` method, which completes once the sink receives end-of-input and also finishes any additional
-  * asynchronous processing it may carry out.
-  *
+  * This result is available from the future returned by the `result` method, but see also `onSinkDone` and `resutOnDone`.
   * Sinks which don't calculate a result value substitute `R = Unit`.
+  *
+  * Instances can be created using methods on the companion object (e.g. `foreach`). They can also be implemented as
+  * Future-based state machines by extending [[SinkImpl]].
+  *
+  * This type extends the Reactive Streams contract of `org.reactivestreams.api.Consumer` and
+  * `org.reactivestreams.spi.Subscriber`.
   */
 trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
   /** Default EC used by mapping operations */
@@ -39,19 +42,15 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
 
   /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
     *
-    * NOTE that this does NOT create a *separate* sink. In other words, the original sink and this sink cannot
+    * NOTE that this does not create a *separate* sink. In other words, the original sink and this sink cannot
     * be subscribed to different sources; any calls to subscribe(), onNext(), etc. on either one of them affect
     * both equally.
     *
-    * TODO this requires an implicit ExecutionContext, but most of the time we already have a SinkImpl that has
-    * an attached EC; how to reuse it then? Should SinkImpl provide an overload of this method without the
-    * implicit parameter - is that a legal overload?
-    *
-    * This is called `mapSink` and not simply `map` to distinguish it from [[Source.map]] on the Pipe.
+    * This is called `mapResult` and not simply `map` to distinguish it from `Source.map` on Pipe.
     */
-  def mapSink[K](func: R => K)(implicit ecc: ExecutionContext) : Sink[T, K] = {
+  def mapResult[K](func: R => K) : Sink[T, K] = {
     val orig = this
-    val mappedResult = orig.result.map(func)(ecc) // Schedule `func` run even if noone accesses the returned Sink.result
+    val mappedResult = orig.result.map(func) // Schedule `func` run even if noone accesses the returned Sink.result
     new Sink[T, K] {
       override def result: Future[K] = mappedResult
       override def onSinkDone: Future[Unit] = orig.onSinkDone
@@ -60,21 +59,21 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
       override def onComplete(): Unit = orig.onComplete()
       override def onNext(element: T): Unit = orig.onNext(element)
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
-      override def ec: ExecutionContext = ecc
+      override def ec: ExecutionContext = orig.ec
     }
   }
 
   /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
     *
-    * NOTE that this does NOT create a *separate* sink. In other words, the original sink and this sink cannot
+    * NOTE that this does not create a *separate* sink. In other words, the original sink and this sink cannot
     * be subscribed to different sources; any calls to subscribe(), onNext(), etc. on either one of them affect
     * both equally.
     *
-    * This is called `flatMapSink` and not simply `flatMap` to distinguish it from [[Source.flatMap]] on the Pipe.
+    * This is called `flatMapResult` and not simply `flatMap` to distinguish it from `Source.flatMap` on Pipe.
     */
-  def flatMapSink[K](func: R => Future[K])(implicit ecc: ExecutionContext) : Sink[T, K] = {
+  def flatMapResult[K](func: R => Future[K]) : Sink[T, K] = {
     val orig = this
-    val mappedResult = orig.result.flatMap(func)(ecc) // Schedule `func` run even if noone accesses the returned Sink.result
+    val mappedResult = orig.result.flatMap(func) // Schedule `func` run even if noone accesses the returned Sink.result
     new Sink[T, K] {
       // Lazy vals ensure we only call `func` once
       override def result: Future[K] = mappedResult
@@ -84,15 +83,22 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
       override def onComplete(): Unit = orig.onComplete()
       override def onNext(element: T): Unit = orig.onNext(element)
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
-      override def ec: ExecutionContext = ecc
+      override def ec: ExecutionContext = orig.ec
     }
   }
 
 }
 
+/** Contains factory methods for creating [[Sink]] instances.
+  *
+  * In the various families of methods (foreachXXX, foldXXX), an `M` suffix denotes a method returning a Future (the M
+  * stands for Monadic and is a style I inherited from the play-iteratees library). An `Input` suffix denotes a method
+  * that receives an `Option[T]` rather than a raw `T`; this lets it see EOF tokens explicitly.
+  */
 object Sink {
-  /** Creates a Sink that runs `f` for each input. `f` will only be called again after the previous call completes.
-    * It will never be called again if it fails (throws).
+
+  /** Creates a Sink that runs `f` for each input. `f` is called non-concurrently.
+    * It will never be called again if it fails (throws an exception).
     *
     * NOTE that `f` is run asynchronously in the supplied ExecutionContext.
     */
@@ -109,9 +115,8 @@ object Sink {
     }
   } named "Sink.foreach"
 
-  /** Creates a Sink that runs `f` for each input. It is called with None to signify EOF.
-    *
-    * `f` will only be called again after the previous call completes. It will never be called again if it fails (throws).
+  /** Creates a Sink that runs `f` for each input. `f` is called non-concurrently. It is called with None to signify EOF.
+    * It will never be called again if it fails (throws an exception).
     *
     * NOTE that `f` is run asynchronously in the supplied ExecutionContext.
     */
@@ -128,12 +133,8 @@ object Sink {
     }
   } named "Sink.foreachInput"
 
-  /** Creates a Sink that runs `f` for each input. It is called with None to signify EOF.
-    *
-    * `f` will only be called again after the future returned by the previous call completes.
-    * The Sink will complete once it receives end-of-input.
-    *
-    * It will never be called again if it fails (throws or returns a failed future).
+  /** Creates a Sink that runs `f` for each input. `f` is called non-concurrently. It is called with None to signify EOF.
+    * It will never be called again if it fails (throws an exception).
     */
   def foreachInputM[T](f: Option[T] => Future[Unit])(implicit ecc: ExecutionContext): Sink[T, Unit] = new SinkImpl.WithoutResult[T] {
     override def ec: ExecutionContext = ecc
@@ -146,10 +147,8 @@ object Sink {
     }
   } named "Sink.foreachInputM"
 
-  /** Creates a Sink that runs `f` for each input. `f` will only be called again after the future returned by the
-    * previous call completes. The Sink will complete once it receives end-of-input.
-    *
-    * It will never be called again if it fails (throws or returns a failed future).
+  /** Creates a Sink that runs `f` for each input. `f` is called non-concurrently.
+    * It will never be called again if it fails (throws an exception).
     */
   def foreachM[T](f: T => Future[Unit])(implicit ecc: ExecutionContext): Sink[T, Unit] = new SinkImpl.WithoutResult[T] {
     override def ec: ExecutionContext = ecc
@@ -165,7 +164,7 @@ object Sink {
     }
   } named "Sink.foreachM"
 
-  /** Creates a sink that discards all input. */
+  /** Returns a sink that discards all input. */
   def discard[T](implicit ecc: ExecutionContext): Sink[T, Unit] = new SinkImpl.WithoutResult[T] {
     override def ec: ExecutionContext = ecc
 
@@ -189,7 +188,10 @@ object Sink {
     }
   } named "Sink.collect"
 
-  /** Returns a Sink that implements a fold(). The end-of-input is not passed explicitly to the folder. */
+  /** Returns a Sink that implements a `fold`. `f` is called non-concurrently.
+    * It will never be called again if it fails (throws an exception).
+    *
+    * NOTE that `f` is run asynchronously in the supplied ExecutionContext. */
   def fold[T, S, R](initialState: S)(folder: (S, T) => S)(finalStep: S => R)(implicit ecc: ExecutionContext): Sink[T, R] = new SinkImpl[T, R] {
     override def ec: ExecutionContext = ecc
 
@@ -207,7 +209,9 @@ object Sink {
     }
   } named "Sink.fold"
 
-  /** Returns a Sink that implements an asynchronous fold(). The end-of-input is not passed explicitly to the folder. */
+  /** Returns a Sink that implements an asynchronous fold().  `f` is called non-concurrently.
+    * It will never be called again if it fails (throws an exception).
+    */
   def foldM[T, S, R](initialState: S)(folder: (S, T) => Future[S])(finalStep: S => Future[R])(implicit ecc: ExecutionContext): Sink[T, R] = new SinkImpl[T, R] {
     override def ec: ExecutionContext = ecc
 
@@ -229,7 +233,7 @@ object Sink {
     }
   } named "Sink.foldM"
 
-  /** A Sink which is already done, with a result that is immediately available. It never requests more data from a source. */
+  /** Returns a Sink which is already done, with a result that is immediately available. It never requests more data from a source. */
   def done[T, R](r: R)(implicit ecc: ExecutionContext) : Sink[T, R] = new Sink[T, R] {
     override def result: Future[R] = Future.successful(r)
     override def onSinkDone: Future[Unit] = success
@@ -252,6 +256,6 @@ object Sink {
     future onFailure {
       case e => forwarder.onError(e)
     }
-    forwarder flatMapSink(_ => future flatMap(_.result))
+    forwarder flatMapResult(_ => future flatMap(_.result))
   } named "Sink.flatten"
 }

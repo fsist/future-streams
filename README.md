@@ -50,17 +50,18 @@ Future. Normally you wouldn't want that.
 Here's a more useful example:
 
 ```
-val src: File = ???; val dest: File = ???
-val fut : Future[Unit] = Nio.source(src) >> Pipe.map( some transform on ByteString ) >>| Nio.sink(dest)
+type Channel = java.nio.channels.AsynchronousSocketChannel // You can get this for a socket 
+val src: Channel = ???; val dest: Channel = ???
+val fut : Future[Unit] = ByteSource(src) >> Pipe.map( some transform on ByteString ) >>| ByteSink(dest)
 ```
 
-This passes data between two files, transforming it on the way. The whole expression returns a `Future[Unit]` that 
-completes when the operation does.
+This passes data asynchronously between two sockets, transforming it on the way. The whole expression returns a 
+`Future[Unit]` that completes when the operation does.
 
 You may wonder why we would not simply write:
 
 ```
-val fut : Future[Unit] = Nio.source(src) map ( some transform on ByteString ) >>| Nio.sink(dest)
+val fut : Future[Unit] = ByteSource(src) map ( some transform on ByteString ) >>| ByteSink(dest)
 ```
 
 The reason is that `Pipe.map` explicitly creates an asynchronous component, which is important to remember. The syntax
@@ -185,6 +186,41 @@ val summer : Sink[Int, Int] = new SinkImpl[Int, Int] {
 
 The API for `resultPromise` isn't very pretty and will probably be changed, but I hope the intent comes through.
 
+## Common concepts
+
+### Non-concurrent methods
+
+A method that returns a Future is said to be non-concurrent if it may not be called again before the Future it returned
+last time has completed. This is a common property and applies to `SourceImpl.produce`, `SinkImpl.process` and
+`PipeSegment.emit`.
+
+A guarantee made to non-concurrent methods is that a subsequent call will 
+[see all memory effects](https://github.com/reactive-streams/reactive-streams/issues/53#issuecomment-43916232)
+of the previously completed call (including effects of code that ran in a Future returned by the previous call).
+This means mutable state can be used with ordinary variable fields, without `@volatile` annotations or `AtomicReference`.
+
+### Representing the element stream with Option[T]
+
+A Source produces zero or more `T` elements, followed optionally by either one EOF token or an error. This is modeled in
+two ways.
+
+Reactive Streams has three methods the publisher calls: `onNext`, `onComplete` and `onError`.
+
+Our state machines (e.g. in `Source.produce`) use `Option[T]`, where `Some(t)` indicates an element, `None` indicates EOF,
+and an exception indicates failure.
+
+### CancelToken
+
+`com.fsist.util.CancelToken` is a thin wrapper around a `Promise[Unit]`. When the promise is completed, the token is said
+to be canceled. A `com.fsist.util.CanceledException` can be thrown from a function or Future that is canceled.
+
+The usual pattern is to pass an implicit CancelToken around. All implementations that can block or wait for an external
+Future should either implement cancellation (aborting when the token is signalled) or document that they do not.
+ 
+Each `Source` has an attached CancelToken which, if signalled, will abort the Source.
+
+The value `CancelToken.none` refers to a singleton token that cannot be cancelled.
+ 
 ## Performance issues
 
 The streams I actually use it with are all IO-bound: files, sockets, HTTP messages, database queries. The chunks of

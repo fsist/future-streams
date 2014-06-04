@@ -8,7 +8,7 @@ import scala.concurrent.duration._
 import java.nio.channels.{AsynchronousServerSocketChannel, AsynchronousSocketChannel}
 import java.net.InetSocketAddress
 import java.util.concurrent.TimeUnit
-import com.fsist.stream.{Sink, Source}
+import com.fsist.stream.{ByteSource, ByteSink, Sink, Source}
 import scala.util.Random
 
 class NioTest extends FunSuite with FutureTester {
@@ -43,10 +43,10 @@ class NioTest extends FunSuite with FutureTester {
     val data1 = generateData()
     val data2 = generateData()
 
-    val writer1 = Nio.sink(chan1)
-    val reader1 = Nio.source(chan1)
-    val writer2 = Nio.sink(chan2)
-    val reader2 = Nio.source(chan2)
+    val writer1 = ByteSink(chan1)
+    val reader1 = ByteSource(chan1)
+    val writer2 = ByteSink(chan2)
+    val reader2 = ByteSource(chan2)
 
     (Source(data1) >>| writer1).futureValue
     (Source(data2) >>| writer2).futureValue

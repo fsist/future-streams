@@ -10,12 +10,12 @@ import scala.Some
 import com.fsist.stream.{Source, Sink}
 import scala.util.control.NonFatal
 
-/** Utility code to work with Java NIO async operations and Scala futures. */
+/** Bridges between `java.nio` async operations and Scala futures. */
 object Nio extends Logging {
 
   /** Translates Java NIO completion events to Scala Futures.
     *
-    * Make sure to use a new instance for each completion callback. See example use in [[writeSome]].
+    * Make sure to use a new instance for each completion callback. See example use in `writeSome`.
     */
   class JavaCompletionHandler[T] extends CompletionHandler[T, Object] {
     private val promise = Promise[T]()
@@ -30,7 +30,7 @@ object Nio extends Logging {
     *
     * The future fails with EOFException if the channel is closed.
     */
-  private def writeSome(channel: AsynchronousByteChannel, bytes: ByteBuffer)(implicit ec: ExecutionContext): Future[Int] = {
+  def writeSome(channel: AsynchronousByteChannel, bytes: ByteBuffer)(implicit ec: ExecutionContext): Future[Int] = {
     val callback = new JavaCompletionHandler[Integer]()
     channel.write(bytes, null, callback)
     callback.future.map(count => {
@@ -62,15 +62,11 @@ object Nio extends Logging {
       ).map(_ => ())
   }
 
-  /** @return a Sink that writes to this channel. */
-  def sink(channel: AsynchronousByteChannel)(implicit ec: ExecutionContext): Sink[ByteString, Unit] =
-    Sink.foreachM(write(channel, _))
-
   /** Execute a single async read operation on the channel, appending to this buffer. Returns the number of bytes read.
     *
     * The future fails with EOFException if not enough data can be read.
     */
-  private def readSome(channel: AsynchronousByteChannel, bytes: ByteBuffer)(implicit ec: ExecutionContext): Future[Int] = {
+  def readSome(channel: AsynchronousByteChannel, bytes: ByteBuffer)(implicit ec: ExecutionContext): Future[Int] = {
     if (!bytes.hasRemaining) throw new IllegalArgumentException("No space left in buffer")
 
     val callback = new JavaCompletionHandler[Integer]()
@@ -102,22 +98,4 @@ object Nio extends Logging {
       ByteString(buf)
     })
   }
-
-  /** An async reader from this channel represented as a Source. */
-  def source(channel: AsynchronousByteChannel, readBufferSize: Int = 1024 * 16)
-            (implicit ec: ExecutionContext): Source[ByteString] = {
-    val buf = ByteBuffer.allocate(readBufferSize)
-    Source.generateM[ByteString] {
-      readSome(channel, buf) map { count =>
-        if (count == 0) None
-        else {
-          buf.position(0)
-          val data = ByteString(buf).take(count)
-          buf.position(0)
-          Some(data)
-        }
-      } recover { case e: EOFException => None}
-    }
-  }
-
 }

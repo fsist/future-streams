@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.util.{CancelToken, BoundedAsyncQueue, AsyncQueue}
-import org.reactivestreams.api.Consumer
+import org.reactivestreams.api.{Processor, Consumer}
 import org.reactivestreams.spi.{Subscriber, Publisher, Subscription}
 import scala.Some
 import scala.async.Async._
@@ -9,19 +9,28 @@ import scala.concurrent.{Promise, Future, ExecutionContext}
 import com.fsist.stream.PipeSegment.{Passthrough, WithoutResult}
 import scala.util.control.NonFatal
 
-/** A Pipe is a combination of Source and Sink. A Pipe usually does some sort of transformation or intermediate
+/** A Pipe is a combination of a [[Source]] and a [[Sink]]. It usually does some sort of transformation or intermediate
   * calculation, but it can be any combination of Source and Sink.
   *
-  *
+  * Instances can be created using methods on the companion object, such as `map`. They can also be implemented as
+  * Future-based state machines by extending [[PipeSegment]].
   */
-trait Pipe[A, B, R] extends Sink[A, R] with Source[B] {
+trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
 
-  /** Joins two pipes so the output of `this` becomes the input of `next`, and returns a pipe representing both. */
-  def |>[C, R2](next: Pipe[B, C, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Pipe[A, C, (R, R2)] = {
+  /** Joins two pipes so the output of `this` becomes the input of `next`, and returns a pipe representing both.
+    *
+    * This is different from `this >> next` (treating `this` as a Source) in that the returned Pipe has as its result
+    * the combined results of `this` and `next`.
+    *
+    * Note on subscriptions: subscribing the returned pipe to a Source is identical to subscribing the original `this`
+    * pipe to that source. Subscribing a Sink to the returned pipe is identical to subscribe it to the orginal `next`
+    * pipe.
+    */
+  def |>[C, R2](next: Pipe[B, C, R2]): Pipe[A, C, (R, R2)] = {
     val prev = this
     new Pipe[A, C, (R, R2)] {
-      override def ec: ExecutionContext = ecc
-      override def cancelToken: CancelToken = cancel
+      override implicit def ec: ExecutionContext = prev.ec
+      override implicit def cancelToken: CancelToken = prev.cancelToken
 
       prev.subscribe(next)
 
@@ -45,39 +54,20 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] {
     } named s"${prev.name} >> ${next.name}"
   }
 
-  /** Like `>>`, but discards the result of the original Pipe.
-    * TODO once we support sync combinations, use those on `>>` instead of a separate implementation
+  /** Subscribes a sink to `this` pipe and returns a new sink representing both.
+    * 
+    * This is different from `this >>| sink; sink` in that the result of the returned sink is the combined result
+    * of both `this` original pipe and the original `sink`.
+    * 
+    * Note on subscriptions: subscribing the returned pipe to a Source is identical to subscribing the original `this`
+    * pipe to that source.
     */
-  def |>>[C, R2](next: Pipe[B, C, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Pipe[A, C, R2] = {
-    val prev = this
-    new Pipe[A, C, R2] {
-      override def ec: ExecutionContext = ecc
-      override def cancelToken: CancelToken = cancel
-
-      prev.subscribe(next)
-
-      override def onSinkDone: Future[Unit] = next.onSinkDone
-      override def onSourceDone: Future[Unit] = Future.sequence(Seq(prev.onSourceDone, next.onSourceDone)) map (_ => ())
-      override def subscribe(subscriber: Subscriber[C]): Unit = next.subscribe(subscriber)
-      override def getSubscriber: Subscriber[A] = prev.getSubscriber
-      override def onError(cause: Throwable): Unit = prev.onError(cause)
-      override def onSubscribe(subscription: Subscription): Unit = prev.onSubscribe(subscription)
-      override def onComplete(): Unit = prev.onComplete()
-      override def onNext(element: A): Unit = prev.onNext(element)
-      override def produceTo(consumer: Consumer[C]): Unit = next.produceTo(consumer)
-      override def getPublisher: Publisher[C] = next.getPublisher
-      override def result: Future[R2] = next.result
-      override def subscriber: Option[Subscriber[C]] = next.subscriber
-    } named s"${prev.name} |>> ${next.name}"
-  }
-
-  /** Combines a pipe with a sink and returns a sink representing both. */
-  def |>[R2](next: Sink[B, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Sink[A, (R, R2)] = {
+  def |>[R2](sink: Sink[B, R2]): Sink[A, (R, R2)] = {
     val prev = this
     new Sink[A, (R, R2)] {
-      prev.subscribe(next)
+      prev.subscribe(sink)
 
-      override def onSinkDone: Future[Unit] = Future.sequence(Seq(prev.onSinkDone, next.onSinkDone)) map (_ => ())
+      override def onSinkDone: Future[Unit] = Future.sequence(Seq(prev.onSinkDone, sink.onSinkDone)) map (_ => ())
       override def getSubscriber: Subscriber[A] = prev.getSubscriber
       override def onError(cause: Throwable): Unit = prev.onError(cause)
       override def onSubscribe(subscription: Subscription): Unit = prev.onSubscribe(subscription)
@@ -85,35 +75,29 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] {
       override def onNext(element: A): Unit = prev.onNext(element)
       override def result: Future[(R, R2)] = async {
         val left = await(prev.result)
-        val right = await(next.result)
+        val right = await(sink.result)
         (left, right)
       }
-      override def ec: ExecutionContext = ecc
-    } named s"${prev.name} >> ${next.name}"
+      override implicit def ec: ExecutionContext = prev.ec
+    } named s"${prev.name} >> ${sink.name}"
   }
 
-  /** Like `>>`, but discards the result of the original Pipe.
-    * TODO once we support sync combinations, use those on `>>` instead of a separate implementation
+  /** Like `|>`, but discards the result of the original Pipe.
     */
-  def |>>[R2](next: Sink[B, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Sink[A, R2] = {
-    val prev = this
-    new Sink[A, R2] {
-      prev.subscribe(next)
+  def |>>[C, R2](next: Pipe[B, C, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Pipe[A, C, R2] =
+    this |> next mapResultPipe(_._2)
 
-      override def onSinkDone: Future[Unit] = next.onSinkDone
-      override def getSubscriber: Subscriber[A] = prev.getSubscriber
-      override def onError(cause: Throwable): Unit = prev.onError(cause)
-      override def onSubscribe(subscription: Subscription): Unit = prev.onSubscribe(subscription)
-      override def onComplete(): Unit = prev.onComplete()
-      override def onNext(element: A): Unit = prev.onNext(element)
-      override def result: Future[R2] = next.result
-      override def ec: ExecutionContext = ecc
-    } named s"${prev.name} |>> ${next.name}"
-  }
+  /** Like `|>`, but discards the result of the original Sink.
+    */
+  def |>>[R2](next: Sink[B, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Sink[A, R2] =
+    this |> next mapResult(_._2)
 
   /** Creates a wrapper Pipe that maps the result of the original Pipe.
     *
     * This wrapper is not a separate Pipe; both pipes will have the same subscribers and see the same input.
+    *
+    * This method is named `mapResultPipe` to distinguish it from the future method `Source.map` and the current
+    * method `Sink.mapResult` (which would return only a Sink and not a Pipe).
     */
   def mapResultPipe[R2](func: R => R2): Pipe[A, B, R2] = {
     val orig = this
@@ -139,6 +123,9 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] {
   /** Creates a wrapper Pipe that maps the result of the original Pipe.
     *
     * This wrapper is not a separate Pipe; both pipes will have the same subscribers and see the same input.
+    *
+    * This method is named `flatMapResultPipe` to distinguish it from the future method `Source.flatMap` and the current
+    * method `Sink.flatMapResult` (which would return only a Sink and not a Pipe).
     */
   def flatMapResultPipe[R2](func: R => Future[R2]): Pipe[A, B, R2] = {
     val orig = this
@@ -162,22 +149,21 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] {
   } named s"$name.flatMapResultPipe"
 }
 
+/** Contains factory methods for creating [[Pipe]] instances.
+  *
+  * In the various families of methods (mapXXX, etc), an `Input` suffix denotes a method
+  * that receives an `Option[T]` rather than a raw `T`; this lets it see EOF tokens explicitly.
+  */
 object Pipe {
-  /** Maps input to output elements. None means end of input.
-    *
-    * `f` is treated as non reentrant; it will not be called again before the last future it returned completes.
-    */
+  /** Maps input to output elements. None means end of input. `f` is called non concurrently. */
   def flatMapInput[A, B](f: Option[A] => Future[Option[B]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     new PipeSegment.WithoutResult[A, B] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
       override protected def process(input: Option[A]): Future[Boolean] = f(input) flatMap(emit) map (_ => input.isEmpty)
-      override def subscriber: Option[Subscriber[B]] = ???
     } named "Pipe.flatMapInput"
 
-  /** Maps input to output elements. EOF is not represented explicitly.
-    *
-    * `f` is treated as non reentrant; it will not be called again before it completes.
+  /** Maps input to output elements. EOF is not represented explicitly. `f` is called non concurrently.
     */
   def flatMap[A, B](f: A => Future[B])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     flatMapInput[A, B] {
@@ -186,22 +172,14 @@ object Pipe {
     } named "Pipe.flatMap"
 
 
-  /** Maps input to output elements.
-    *
-    * None means end of input.
-    *
-    * `f` is treated as non reentrant; it will not be called again before it completes.
+  /** Maps input to output elements. None means end of input. `f` is called non concurrently.
     */
   def mapInput[A, B](f: Option[A] => Option[B])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     flatMapInput[A, B] {
       x => Future(f(x))
     } named "Pipe.mapInput"
 
-  /** Maps input to output elements.
-    *
-    * None means end of input.
-    *
-    * `f` is treated as non reentrant; it will not be called again before it completes.
+  /** Maps input to output elements. None means end of input. `f` is called non concurrently.
     */
   def map[A, B](f: A => B)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     flatMapInput[A, B] {
@@ -209,11 +187,12 @@ object Pipe {
       case None => Future.successful(None)
     } named "Pipe.map"
 
+  /** A pipe that does not pass elements until `unblock` is called. */
   trait Blocked {
     def unblock(): Unit
   }
 
-  /** Builds a no-op pipe that will be paused at first, not letting elements through, until unblock() is called. */
+  /** Returns a no-op pipe that will be paused at first, not letting elements through, until unblock() is called. */
   def blocker[A]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, A, Unit] with Blocked =
     new PipeSegment[A, A, Unit] with Blocked {
       resultPromise.success(())
@@ -230,7 +209,7 @@ object Pipe {
       }
     } named "Pipe.blocker"
 
-  /** A pipe that produces the first element of the stream as its result, and passes the stream along unmodified
+  /** Returns a pipe that produces the first element of the stream as its result, and passes the stream along unmodified
     * (including the first element). The result is None if the stream was empty. */
   def tapOne[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[T, T, Option[T]] =
 
@@ -244,7 +223,7 @@ object Pipe {
       }
     } named "Pipe.tapOne"
 
-  /** A pipe segment that logs each stream element using `logger.trace` without modifying it. Useful for debugging. */
+  /** Returns a pipe that logs each stream element using `logger.trace` without modifying it. Useful for debugging. */
   def log[T](clue: String)()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[T, T, Unit] =
     new PipeSegment.WithoutResult[T, T] {
       override def ec: ExecutionContext = ecc
@@ -260,45 +239,44 @@ object Pipe {
       *
       * MUST NOT be called if another Source may send an unrelated data item concurrently.
       */
-    def close(): Future[Unit]
+    def close(): Unit
   }
 
-  /** A pipe that passes elements through but discards EOF tokens, until you call `close` on it. */
+  /** Returns a pipe that passes elements through but discards EOF tokens, until you call `close` on it. */
   def noEof[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : NoEof[T] =
-    new WithoutResult[T, T] with NoEof[T] {
+    new SourceImpl[T] with SinkImpl[T, Unit] with NoEof[T] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
 
       @volatile private var closed : Boolean = false
+      private val queue: BoundedAsyncQueue[Option[T]] = new BoundedAsyncQueue[Option[T]](1)
 
-      override def close(): Future[Unit] = async {
+      override def close(): Unit = {
         closed = true
-        // TODO may be buggy: a Sink isn't supposed to support re-subscription
-        Source() >>| this
       }
 
       override protected def mayDiverge: Boolean = true
 
-      override protected def process(input: Option[T]): Future[Boolean] = async {input match {
-        case some @ Some(t) =>
-          await(emit(some))
-          false
-        case None =>
-          if (closed) {
-            val _ = await(emit(None)) // For some reason the val _ is needed to silence an exception
-            true
-          }
-          else {
-            logger.trace(s"Swallowing EOF")
-            false
-          }
+      override protected def produce(): Future[Option[T]] = queue.dequeue() map {
+        input => if (closed) None else input
       }
+
+      override protected def process(input: Option[T]): Future[Boolean] = {
+        if (closed) {
+          trueFuture
+        }
+        else if (input.isDefined) {
+          queue.enqueue(input) map (_ => false)
+        }
+        else {
+          falseFuture // Skip EOF
+        }
       }
     } named "Pipe.noEof"
 
   /** @return a pipe that passes through all data unmodified and a new Source that produces the same data that passes
-    *         through the pipe. */
-  def tap[T]()(implicit ecc: ExecutionContext, cancel: CancelToken): (Pipe[T, T, Unit], Source[T]) = {
+    *         through the pipe. This is a building block for circumventing the singlecast restriction of Source. */
+  def tap[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): (Pipe[T, T, Unit], Source[T]) = {
     val queue = new BoundedAsyncQueue[Option[T]](1)
 
     val source = new SourceImpl[T] {
@@ -320,17 +298,20 @@ object Pipe {
   }
 }
 
-/** A base implementation of a Pipe that decouples input and output: there doesn't have to be a correspondence between
-  * input and output elements.
+/** Base for Future-based mutable state machine implementations of [[Pipe]].
   *
-  * The implementation should provide the `process` method, which obeys the contract of [[SinkImpl.process]],
-  * and can call the method `emit` defined here.
+  * Concrete implemenetations need to supply the `process` method. It has the same signature and requirements as
+  * `SinkImpl.process`, but can additionally use the `emit` method to produce elements to output. These elements don't
+  * need to correspond in quantity or EOF-ness to the input elements.
+  *
+  * Note well the calling requirements in the doc comment of `emit`.
   */
 trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImpl[A, R] {
   override implicit def ec: ExecutionContext // Declared to reconcile the identical declarations from SourceImpl and SinkImpl
 
   private val outbox = new BoundedAsyncQueue[Option[B]](1)
 
+  /** @see `SinkImpl.produce` and `PipeSegment.emit`. */
   def produce(): Future[Option[B]] = outbox.dequeue()
 
   // Pass errors downstream
@@ -339,8 +320,12 @@ trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImp
     failSource(e)
   }
 
-  /** Emits an item. The proccesor must wait for the returned future to complete, meaning the item was emitted,
-    * before doing more processing or emitting more items. */
+  /** Emits an item to the output of this pipe. DO NOTE the following requirements:
+    *
+    * 1. This method MUST be called non-concurrently.
+    * 2. This method MUST be called only from within `produce` or from inside a Future returned by `produce`.
+    * 3. The future returned by `produce` MUST NOT complete before all the calls to `emit` it started have completed.
+    */
   protected def emit(output: Option[B]): Future[Unit] = {
 //        logger.trace(s"Emitting $output")
     outbox.enqueue(output)
