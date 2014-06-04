@@ -1,6 +1,6 @@
 # future-streams
 
-A `scala.concurrent.Future`-based implementation of [Reactive Streams](www.reactive-streams.org).
+A `scala.concurrent.Future`-based implementation of [Reactive Streams](http://www.reactive-streams.org).
 
 ## Purpose and design constraints
 
