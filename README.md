@@ -2,7 +2,8 @@
 
 A `scala.concurrent.Future`-based implementation of [Reactive Streams](http://www.reactive-streams.org).
 
-This library is graciously being released as open source by my employer, [Foresight Inc.](http://www.foresight-air.com/)
+This library is being graciously released as open source by my employer, 
+[Foresight Information Technologies](http://www.foresight-air.com/).
 
 ## Purpose and design constraints
 
