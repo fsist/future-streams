@@ -2,6 +2,8 @@
 
 A `scala.concurrent.Future`-based implementation of [Reactive Streams](http://www.reactive-streams.org).
 
+This library is graciously being released as open source by my employer, [Foresight Inc.](http://www.foresight-air.com/)
+
 ## Purpose and design constraints
 
 I wrote this library because I needed a scala model for streams with backpressure and transformations. I couldn't wait
@@ -11,7 +13,7 @@ to make a production-quality release.
 I chose to implement on top of the abstraction of Futures, because they are already used in many other libraries and 
 are a good basis for interoperability of asynchronous code outside of Akka Actors.
 
-I chose to implement Reactive Streams, to be compatible with other libraries and perhaps even allow me to port my own
+I chose to implement Reactive Streams, to be compatible with other libraries and perhaps allow me to port my own
 codebase to another library in the future. The design and implementation is guided by Reactive Streams, rather than
 being some other more complex design that can be converted to/from Reactive Streams interfaces when necessary.
  
@@ -22,13 +24,13 @@ not *in principle* be done with akka-streams, but that does not mean it *will* b
 
 ## Description without reference to Reactive Streams ##
 
-The Scaladoc for the two main types - `Source` and `Sink` - is the master reference. This is a summary only.
+The Scaladoc for the two main types - `Source` and `Sink` - is the master reference. This is only a summary.
 
 A `Source[T]` is an asynchronous push-based producer of `T` elements. It may eventually produce an EOF token or an exception, 
 after which it will not produce any more elements.
 
 To consume elements, you need a `Sink[T]`. To transform the stream between the two, you can use a `Pipe[A, B]`, but that
-is merely a shorthand for `Sink[B] with Source[A]`.
+is merely a shorthand for `Sink[A] with Source[B]`.
 
 The stream is asynchronous, push-based, and obeys backpressure. If it were not asynchronous, you could use a `scala.io.Source`.
 If it were not push-based, you could use a model similar to `java.io.InputStream` or `java.nio.Channel`. If it did not
@@ -54,6 +56,16 @@ val fut : Future[Unit] = Nio.source(src) >> Pipe.map( some transform on ByteStri
 This passes data between two files, transforming it on the way. The whole expression returns a `Future[Unit]` that 
 completes when the operation does.
 
+You may wonder why we would not simply write:
+
+```
+val fut : Future[Unit] = Nio.source(src) map ( some transform on ByteString ) >>| Nio.sink(dest)
+```
+
+The reason is that `Pipe.map` explicitly creates an asynchronous component, which is important to remember. The syntax
+`source.map` and other transformations expressed as methods of `Source` is reserved for the future support for 
+synchronous transformations.
+
 ## Differences from generic Reactive Streams
 
 This is a faithful implementation of Reactive Streams, with `Source` corresponding to `Publisher/Producer` and `Sink` to
@@ -63,7 +75,7 @@ This is a faithful implementation of Reactive Streams, with `Source` correspondi
    is not ready to receive it; instead they wait for the subscriber. If no subscriber is present (including when one
    unsubscribes), a Source will wait for another to subscribe.
    This is suitable for sources that produce data from storage or is calculated when it is requested by a deterministic
-   function. It is unsuitable for sources that produce data tied to a clock (e.g. a clock) or data that becomes 
+   function. It is unsuitable for sources that produce data tied to a clock (e.g. a tick every second) or data that becomes 
    irrelevant if not processed quickly (e.g. a stock ticker).
 2. *Singlecast*. All Sources support exactly one subscriber. This makes both the API and the implementation much simpler.
    Multicast behavior can still be obtained via explicit methods that split a Source into several Sources.
@@ -170,13 +182,13 @@ val summer : Sink[Int, Int] = new SinkImpl[Int, Int] {
 
 ```
 
-The API isn't pretty and will change soon, but I hope the intent comes through.
+The API for `resultPromise` isn't very pretty and will probably be changed, but I hope the intent comes through.
 
 ## Performance issues
 
 The streams I actually use it with are all IO-bound: files, sockets, HTTP messages, database queries. The chunks of
 data are relatively large and few. Therefore, the performance of the implementation has taken a second seat to simplicity
-and correctness. Although I plan to improve performance significantly in the future, it probably will never equal that
+and correctness. Although I plan to improve performance significantly in the future, it won't equal that
 of akka-streams. 
 
 As an upper bound to performance, the Scala Future and Promise objects are relatively expensive.
@@ -187,7 +199,7 @@ be used to optimize specific use cases.
 The biggest immediate problem with multi-stage pipelines is that all stages are currently fully asynchronous
 (that is, they are `Pipe`s, and `Pipe extends Source with Sink`). The Reactive Streams specification assumes an
 asynchronous boundary between all such components, which means even synchronous transformations like `map` require each
-element to be wrapped in a new Future. (The current code uses `Future.map` with even already-completed futures, and that
+element to be wrapped in a new Future. (The current code uses `Future.map` even with already-completed futures, and that
 at least could be partially eliminated.)
 
 The next version of this library will include a mechanism for synchronous transformations of existing `Source`s, which
@@ -202,11 +214,18 @@ whose implementation could probably be optimized.
 Everything described above is implemented. However, there are insufficient tests at present, and there may be 
 undiscovered bugs. I consider the library to be beta quality.
 
-No API stability guarantee is made. 
+Some combinator methods are missing which you would expect to be there. This is because the library is originally
+company-internal code, and methods were added on an as-needed basis. 
+
+No API stability guarantee is made.
+ 
+I haven't published artifacts yet, or cross-compiled with scala 2.11. Also, `bytestreams`' dependency is on Akka 2.2,
+because that is what I use in my own code. Akka 2.3 is not binary-compatible with 2.2, so I would have to cross-compile
+for that too. (Assistance with the sbt files would be very welcome.)
 
 ## Future plans
 
-Apart from many small changes and cleanups necessary, the one large change planned is synchronous transformations.
+Apart from the many small changes and cleanups necessary, the one large change planned is synchronous transformations.
 These would be expressed as `source.map(f: A => B)`, `source.foreach(f: A => Unit)`, etc. Unlike explicitly creating 
 an equivalent Pipe or Sink, they would run synchronously on the Source's own stack.
 
