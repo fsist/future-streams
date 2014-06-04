@@ -7,7 +7,7 @@
         </encoder>
     </appender>
 
-    <logger name="com.fsist" level="trace" />
+    <!--<logger name="com.fsist" level="trace" />-->
 
     <root level="info">
         <appender-ref ref="STDOUT" />
