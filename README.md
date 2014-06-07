@@ -135,8 +135,8 @@ actor messages); those messages can be enqueued, and the queue's `source()` meth
 produce them. Of course, the queue is unbounded, so if you don't consume the elements quickly enough, you will run out
 of memory.
 
-If you have a producer that does support back-pressure and expects to call an `enqueue(t): Future[Unit]` method,
-you can use a `BoundedAsyncQueue` instead.
+If you want to interface with other code that supports using Futures to express back-pressure, you can use `Source.pusher`
+and `Sink.puller`.
 
 ### State machines
 
