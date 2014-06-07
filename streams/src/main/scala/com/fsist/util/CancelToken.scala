@@ -68,19 +68,17 @@ class CanceledException(msg: String = "Token canceled") extends Exception(msg)
 /** Represents a Future that never completes. This allows us to discard continuation functions, which would otherwise
   * stay forever in memory (for CancelToken.none). */
 object NeverFuture extends Future[Unit] {
+  private val promise = Promise[Unit]()
+
   override def onComplete[U](func: (Try[Unit]) => U)(implicit executor: ExecutionContext): Unit = ()
   override def isCompleted: Boolean = false
   override val value: Option[Try[Unit]] = None
-
-  override def result(atMost: Duration)(implicit permit: CanAwait): Unit = result(atMost)
   
-  override def ready(atMost: Duration)(implicit permit: CanAwait): NeverFuture.type = atMost match {
-    case fin: FiniteDuration =>
-      Thread.sleep(fin.toMillis)
-      throw new TimeoutException
-    case Duration.Inf =>
-      while (true) Thread.sleep(Long.MaxValue)
-      throw new InterruptedException // Otherwise compiler doesn't know we'll never return
-    case _ => throw new IllegalArgumentException
+  // Delegate to a real Promise's implementation
+
+  override def result(atMost: Duration)(implicit permit: CanAwait): Unit = promise.future.result(atMost)
+  override def ready(atMost: Duration)(implicit permit: CanAwait): NeverFuture.type = {
+    promise.future.ready(atMost)
+    this
   }
 }
