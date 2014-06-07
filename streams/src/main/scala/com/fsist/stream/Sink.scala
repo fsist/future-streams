@@ -6,6 +6,7 @@ import scala.collection.mutable.ListBuffer
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.Some
 import scala.util.control.NonFatal
+import com.fsist.util.{BoundedAsyncQueue, CancelToken}
 
 /** A Sink receives data from a [[com.fsist.stream.Source]] and asynchronously signals it back when it is ready to receive more.
   * It may have some side effects, and/or calculate a result of type `R`.
@@ -258,4 +259,28 @@ object Sink {
     }
     forwarder flatMapResult(_ => future flatMap(_.result))
   } named "Sink.flatten"
+
+  /** A sink that exposes elements for external code to pull asynchronously. Return type of `Sink.puller`. */
+  trait Puller[T] extends Sink[T, Unit] {
+    /** Returns a Future that yields the next element.
+      *
+      * The future completes with Some element, None for EOF, or fails due to an upstream error.
+      *
+      * Note that after a future completes with None (EOF) or fails, all subsequent futures returned by this method
+      * may never complete. Thus, the method should be called non-concurrently for safety.
+      */
+    def pull(): Future[Option[T]]
+  }
+
+  /** Returns a Sink that exposes elements via the `Puller.pull` method. It has an internal queue of size `bufferSize`
+    * and will not process more elements than that until they are `pull`ed out. */
+  def puller[T](bufferSize: Int = 1)(implicit ecc: ExecutionContext): Puller[T] =
+    new SinkImpl[T, Unit] with Puller[T] {
+      require(bufferSize >= 1)
+      private val queue = new BoundedAsyncQueue[Option[T]](bufferSize)
+
+      override def ec: ExecutionContext = ecc
+      override protected def process(input: Option[T]): Future[Boolean] = queue.enqueue(input) map (_ => input.isEmpty)
+      override def pull(): Future[Option[T]] = queue.dequeue()
+    }
 }

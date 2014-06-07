@@ -58,7 +58,7 @@ trait SourceImpl[T] extends Source[T] {
     // Fire and forget
     Future {
       nextStep()
-    }(ec) recover { case NonFatal(e) => failSource(e)}
+    } recover { case NonFatal(e) => failSource(e)}
   }
 
   /** Notify all subscribers of this failure and refuse future subscriptions. */

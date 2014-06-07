@@ -55,10 +55,10 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
   }
 
   /** Subscribes a sink to `this` pipe and returns a new sink representing both.
-    * 
+    *
     * This is different from `this >>| sink; sink` in that the result of the returned sink is the combined result
     * of both `this` original pipe and the original `sink`.
-    * 
+    *
     * Note on subscriptions: subscribing the returned pipe to a Source is identical to subscribing the original `this`
     * pipe to that source.
     */
@@ -85,12 +85,12 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
   /** Like `|>`, but discards the result of the original Pipe.
     */
   def |>>[C, R2](next: Pipe[B, C, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Pipe[A, C, R2] =
-    this |> next mapResultPipe(_._2)
+    this |> next mapResultPipe (_._2)
 
   /** Like `|>`, but discards the result of the original Sink.
     */
   def |>>[R2](next: Sink[B, R2])(implicit ecc: ExecutionContext, cancel: CancelToken = cancelToken): Sink[A, R2] =
-    this |> next mapResult(_._2)
+    this |> next mapResult (_._2)
 
   /** Creates a wrapper Pipe that maps the result of the original Pipe.
     *
@@ -160,7 +160,7 @@ object Pipe {
     new PipeSegment.WithoutResult[A, B] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
-      override protected def process(input: Option[A]): Future[Boolean] = f(input) flatMap(emit) map (_ => input.isEmpty)
+      override protected def process(input: Option[A]): Future[Boolean] = f(input) flatMap (emit) map (_ => input.isEmpty)
     } named "Pipe.flatMapInput"
 
   /** Maps input to output elements. EOF is not represented explicitly. `f` is called non concurrently.
@@ -243,12 +243,12 @@ object Pipe {
   }
 
   /** Returns a pipe that passes elements through but discards EOF tokens, until you call `close` on it. */
-  def noEof[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : NoEof[T] =
+  def noEof[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): NoEof[T] =
     new SourceImpl[T] with SinkImpl[T, Unit] with NoEof[T] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
 
-      @volatile private var closed : Boolean = false
+      @volatile private var closed: Boolean = false
       private val queue: BoundedAsyncQueue[Option[T]] = new BoundedAsyncQueue[Option[T]](1)
 
       override def close(): Unit = {
@@ -296,6 +296,15 @@ object Pipe {
 
     (pipe, source)
   }
+
+  /** Creates a pipe that buffers up to `bufSize` elements, which can increase efficiency when the soure and/or sink are
+    * not CPU-bound. */
+  def buffer[T](bufSize: Int)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[T, T, Unit] =
+    new Passthrough[T] {
+      override protected def bufferSize: Int = bufSize
+      override implicit def cancelToken: CancelToken = cancel
+      override implicit def ec: ExecutionContext = ecc
+    }
 }
 
 /** Base for Future-based mutable state machine implementations of [[Pipe]].
@@ -309,7 +318,8 @@ object Pipe {
 trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImpl[A, R] {
   override implicit def ec: ExecutionContext // Declared to reconcile the identical declarations from SourceImpl and SinkImpl
 
-  private val outbox = new BoundedAsyncQueue[Option[B]](1)
+  protected def bufferSize: Int = 1
+  private val outbox = new BoundedAsyncQueue[Option[B]](bufferSize)
 
   /** @see `SinkImpl.produce` and `PipeSegment.emit`. */
   def produce(): Future[Option[B]] = outbox.dequeue()
@@ -327,13 +337,13 @@ trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImp
     * 3. The future returned by `produce` MUST NOT complete before all the calls to `emit` it started have completed.
     */
   protected def emit(output: Option[B]): Future[Unit] = {
-//        logger.trace(s"Emitting $output")
+    //        logger.trace(s"Emitting $output")
     outbox.enqueue(output)
   }
 
   /** Convenience overload that emits a sequence of items. */
-  protected def emit(outputs: TraversableOnce[Option[B]]) : Future[Unit] = {
-    outputs.foldLeft(success){
+  protected def emit(outputs: TraversableOnce[Option[B]]): Future[Unit] = {
+    outputs.foldLeft(success) {
       case (fut, next) => fut flatMap (_ => emit(next))
     }
   }

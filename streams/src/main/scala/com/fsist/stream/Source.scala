@@ -212,4 +212,49 @@ object Source extends Logging {
     }
     pipe
   } named "Source.flatten"
+
+  /** A Source that allows pushing data through it by calling the extra methods defined here.
+    *
+    * Each overload of `push` returns a future. It can complete before the source actually produces this element,
+    * but if you call push() faster than the Source can produce elements (due to backpressure from the connected Sink),
+    * the returned Futures will not complete. (The created Source has an internal queue size of 1.)
+    *
+    * The `push` methods do not have to be called non-concurrently.
+    */
+  trait Pusher[T] extends Source[T] {
+    def push(t: T) : Future[Unit]
+    /** If None is passed, the source produces EOF. */
+    def push(input: Option[T]) : Future[Unit]
+  }
+
+  /** Creates a Source that produces the data that is `push`ed into it. See the `push` methods defined on the [[Pusher]] trait.
+    *
+    * @param bufferSize size of the internal buffer of the Source (for elements pushed in but not yet sent to consumers).
+    *                   Must be at least 1.
+    */
+  def pusher[T](bufferSize: Int = 1)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pusher[T] = new SourceImpl[T] with Pusher[T] {
+    require(bufferSize >= 1)
+    private val queue = new BoundedAsyncQueue[Option[T]](bufferSize)
+    @volatile private var seenEof : Boolean = false
+
+    override def cancelToken: CancelToken = cancel
+    override def ec: ExecutionContext = ecc
+    override protected def produce(): Future[Option[T]] = queue.dequeue()
+
+    def push(t: T) : Future[Unit] = push(Some(t))
+    def push(input: Option[T]) : Future[Unit] = {
+      // Of course this isn't precise; a few elements might be enqueued after EOF and will be stuck in the queue forever
+      if (seenEof) {
+        throw new IllegalStateException(s"EOF was already pushed, cannot push more elements")
+      }
+
+      if (input.isDefined) logger.trace(s"Pushing element")
+      else {
+        logger.trace(s"Pushing EOF")
+        seenEof = true
+      }
+
+      queue.enqueue(input)
+    }
+  } named "Source.pusher"
 }
