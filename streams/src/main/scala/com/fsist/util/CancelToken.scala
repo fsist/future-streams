@@ -1,6 +1,8 @@
 package com.fsist.util
 
-import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.concurrent._
+import scala.concurrent.duration.{FiniteDuration, Duration}
+import scala.util.Try
 
 /** Used to cooperatively, asynchronously cancel operations.
   *
@@ -32,11 +34,11 @@ class CancelToken private (val promise: Promise[Unit], allowCancel: Boolean = tr
   def cancel(): Boolean = if (allowCancel) promise.trySuccess(()) else throw new IllegalArgumentException("This token doens't allow cancellation")
 
   /** Returns a future that is completed when the token is canceled (it may be already completed when it's returned). */
-  def future: Future[Unit] = promise.future
+  def future: Future[Unit] = if (allowCancel) promise.future else NeverFuture
 
   /** Returns a future that is failed with a CanceledException when the token is canceled (it may be already completed when it's returned). */
   def futureFail(implicit ec: ExecutionContext): Future[Unit] =
-    promise.future flatMap (_ => Future.failed(new CanceledException()))
+    future flatMap (_ => Future.failed(new CanceledException()))
 
   /** The returned future does one of two things:
     *
@@ -62,3 +64,23 @@ object CancelToken {
 
 /** Thrown by methods of CancelToken as documented when an operation has been canceled. */
 class CanceledException(msg: String = "Token canceled") extends Exception(msg)
+
+/** Represents a Future that never completes. This allows us to discard continuation functions, which would otherwise
+  * stay forever in memory (for CancelToken.none). */
+object NeverFuture extends Future[Unit] {
+  override def onComplete[U](func: (Try[Unit]) => U)(implicit executor: ExecutionContext): Unit = ()
+  override def isCompleted: Boolean = false
+  override val value: Option[Try[Unit]] = None
+
+  override def result(atMost: Duration)(implicit permit: CanAwait): Unit = result(atMost)
+  
+  override def ready(atMost: Duration)(implicit permit: CanAwait): NeverFuture.type = atMost match {
+    case fin: FiniteDuration =>
+      Thread.sleep(fin.toMillis)
+      throw new TimeoutException
+    case Duration.Inf =>
+      while (true) Thread.sleep(Long.MaxValue)
+      throw new InterruptedException // Otherwise compiler doesn't know we'll never return
+    case _ => throw new IllegalArgumentException
+  }
+}
