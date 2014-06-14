@@ -305,6 +305,33 @@ object Pipe {
       override implicit def cancelToken: CancelToken = cancel
       override implicit def ec: ExecutionContext = ecc
     }
+
+  /** Converts a Future[Pipe] to a Pipe that will start passing elements after the `future` completes. */
+  def flatten[T, S, R](futurePipe: Future[Pipe[T, S, R]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[T, S, R] =
+    new Pipe[T, S, R] with SinkImpl[T, R] with SourceImpl[S] {
+      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+
+      private val pusher = Source.pusher[T]()
+      private val puller = Sink.puller[S]()
+
+      private val build = async {
+        val inner = await(futurePipe)
+        pusher >> inner >>| puller
+        resultPromise.completeWith(inner.result)
+      }
+      
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        await(build) // Fail if the original future failed
+        await(pusher.push(input))
+        input.isEmpty
+      }
+
+      override protected def produce(): Future[Option[S]] = async {
+        await(build) // Fail if the original future failed
+        await(puller.pull())
+      }
+    } named "Pipe.flatten"
 }
 
 /** Base for Future-based mutable state machine implementations of [[Pipe]].
