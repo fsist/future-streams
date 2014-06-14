@@ -245,7 +245,8 @@ object Source extends Logging {
     def push(input: Option[T]) : Future[Unit] = {
       // Of course this isn't precise; a few elements might be enqueued after EOF and will be stuck in the queue forever
       if (seenEof) {
-        throw new IllegalStateException(s"EOF was already pushed, cannot push more elements")
+        if (input.isEmpty) return success
+        else Future.failed(new IllegalStateException(s"EOF was already pushed, cannot push more elements"))
       }
 
       if (input.isDefined) logger.trace(s"Pushing element")
