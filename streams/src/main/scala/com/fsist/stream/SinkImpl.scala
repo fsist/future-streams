@@ -111,7 +111,6 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     //    logger.trace(s"process($input) produced $isDone")
 
     if (isDone.isFailure) {
-      logger.trace(s"Failed")
       cancelSubscription()
       throw isDone.failed.get
     }
