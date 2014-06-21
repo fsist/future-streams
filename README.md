@@ -220,24 +220,36 @@ Future should either implement cancellation (aborting when the token is signalle
 Each `Source` has an attached CancelToken which, if signalled, will abort the Source.
 
 The value `CancelToken.none` refers to a singleton token that cannot be cancelled.
+
+### FastAsync.fastAwait
+
+`Future.onComplete` requires relatively expensive scheduling (just try running it in a loop). However, `scala-async`'s
+`await` macro has a synchronous signature and therefore [can be optimized](https://github.com/scala/async/issues/73) to 
+return the value of the future synchronously if it is already completed when `await` is called. This greatly improves
+performance for our code which uses very large amounts of futures constructed with `Future.successful`.
+
+All code in this project uses `fastAwait`, which is a macro wrapping the ordinary `await` to implement this optimization.
+I hope it can be merged into the regular `await` in the future.
  
 ## Performance issues
 
 The streams I actually use it with are all IO-bound: files, sockets, HTTP messages, database queries. The chunks of
 data are relatively large and few. Therefore, the performance of the implementation has taken a second seat to simplicity
-and correctness. Although I plan to improve performance significantly in the future, it won't equal that
+and correctness. Although I plan to improve performance significantly in the future, it will probably never equal that
 of akka-streams. 
 
-As an upper bound to performance, the Scala Future and Promise objects are relatively expensive.
-Also, non-default ExecutionContext configurations may need to be used to achieve good performance with my usage patterns.
-It's possible to assign a different `ExecutionContext` to each `Source`, `Pipe` and `Sink` in a pipeline, and this may
-be used to optimize specific use cases.
+As an upper bound to performance, `Future.successful` requires creating two objects (Future and Promise) with a few fields
+to wrap each element. Actually dispatching futures (as opposed to the `fastAwait` shortcut) is much more expensive than
+calling a function.
 
-The biggest immediate problem with multi-stage pipelines is that all stages are currently fully asynchronous
+Also, non-default ExecutionContext configurations may need to be used to achieve good performance, depending on your
+usage patterns. It's possible to assign a different `ExecutionContext` to each `Source`, `Pipe` and `Sink` in a pipeline, 
+and this may be used to optimize specific use cases.
+
+The biggest problem with multi-stage pipelines is that all stages are currently fully asynchronous
 (that is, they are `Pipe`s, and `Pipe extends Source with Sink`). The Reactive Streams specification assumes an
 asynchronous boundary between all such components, which means even synchronous transformations like `map` require each
-element to be wrapped in a new Future. (The current code uses `Future.map` even with already-completed futures, and that
-at least could be partially eliminated.)
+element to be wrapped in a new Future.
 
 The next version of this library will include a mechanism for synchronous transformations of existing `Source`s, which
 should alleviate this issue. After that change, I expect the performance of the library to be good enough in IO-bound
