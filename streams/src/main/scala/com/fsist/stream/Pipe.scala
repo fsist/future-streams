@@ -248,48 +248,6 @@ object Pipe {
       }
     } named s"Pipe.log($clue)"
 
-  trait NoEof[T] extends Pipe[T, T, Unit] {
-    /** Causes the pipe to send an EOF token and close (no longer accept data from other sources).
-      *
-      * MUST NOT be called if another Source may send an unrelated data item concurrently.
-      */
-    def close(): Unit
-  }
-
-  /** Returns a pipe that passes elements through but discards EOF tokens, until you call `close` on it. */
-  def noEof[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): NoEof[T] =
-    new SourceImpl[T] with SinkImpl[T, Unit] with NoEof[T] {
-      override def ec: ExecutionContext = ecc
-      override def cancelToken: CancelToken = cancel
-
-      @volatile private var closed: Boolean = false
-      private val queue: BoundedAsyncQueue[Option[T]] = new BoundedAsyncQueue[Option[T]](1)
-
-      override def close(): Unit = {
-        closed = true
-      }
-
-      override protected def mayDiverge: Boolean = true
-
-      override protected def produce(): Future[Option[T]] = async {
-        val input = fastAwait(queue.dequeue())
-        if (closed) None else input
-      }
-
-      override protected def process(input: Option[T]): Future[Boolean] = {
-        if (closed) {
-          trueFuture
-        }
-        else if (input.isDefined) async {
-          fastAwait(queue.enqueue(input))
-          false
-        }
-        else {
-          falseFuture // Skip EOF
-        }
-      }
-    } named "Pipe.noEof"
-
   /** @return a pipe that passes through all data unmodified and a new Source that produces the same data that passes
     *         through the pipe. This is a building block for circumventing the singlecast restriction of Source. */
   def tap[T]()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): (Pipe[T, T, Unit], Source[T]) = {
