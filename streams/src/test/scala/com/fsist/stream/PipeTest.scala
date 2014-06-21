@@ -7,14 +7,16 @@ import scala.collection.JavaConversions._
 import scala.concurrent.{Future, ExecutionContext}
 
 class PipeTest extends FunSuite with FutureTester {
-  implicit val ec : ExecutionContext = ExecutionContext.global
+  implicit val ec: ExecutionContext = ExecutionContext.global
 
   test("flatMapInput") {
     val source = Source.from(1 to 10)
     val sink = Sink.collect[Int]()
 
     val pipe = Pipe.flatMapInput[Int, Int] {
-      case Some(x) if x <= 5 => Future { Some(x * 2) }
+      case Some(x) if x <= 5 => Future {
+        Some(x * 2)
+      }
       case _ => Future.successful(None)
     }
 
@@ -52,5 +54,24 @@ class PipeTest extends FunSuite with FutureTester {
 
     assert(result == (1 to 10).toList, "Elements were passed through the tapper unmodified")
     assert(tapper.result.futureValue == Some(1), "Tapper captured first element")
+  }
+
+  test("tap") {
+    val source = Source.from(1 to 10)
+    val (pipe, source2) = Pipe.tap[Int]()
+    source >>| pipe
+    val result1 = pipe >>| Sink.collect()
+    val result2 = source2 >>| Sink.collect()
+    assert(result1.futureValue == (1 to 10))
+    assert(result2.futureValue == (1 to 10))
+  }
+
+  test("flatten") {
+    val source = Source.from(1 to 10)
+    val sink = Sink.collect[Int]()
+    val pipe = Pipe.flatten(Future {
+      Pipe.map[Int, Int](a => a)
+    })
+    assert((source >> pipe >>| sink).futureValue == (1 to 10))
   }
 }
