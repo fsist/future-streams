@@ -27,6 +27,7 @@
     <orderEntry type="inheritedJdk" />
     <orderEntry type="sourceFolder" forTests="false" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4" level="project" />
+    <orderEntry type="library" name="SBT: org.scalamacros:quasiquotes_2.10:2.0.0" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe:scalalogging-slf4j_2.10:1.0.1" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: org.slf4j:slf4j-api:1.7.6:test" level="project" />
     <orderEntry type="library" name="SBT: org.slf4j:slf4j-api:1.7.2" level="project" />
@@ -36,6 +37,7 @@
     <orderEntry type="library" scope="TEST" name="SBT: org.scalatest:scalatest_2.10:2.1.5:test" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: ch.qos.logback:logback-classic:1.1.2:test" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: ch.qos.logback:logback-core:1.1.2:test" level="project" />
+    <orderEntry type="module" module-name="macros" exported="" />
   </component>
 </module>
 

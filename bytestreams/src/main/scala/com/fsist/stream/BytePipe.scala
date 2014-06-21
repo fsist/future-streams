@@ -5,6 +5,7 @@ import com.fsist.util.CancelToken
 import akka.util.ByteString
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 import scala.async.Async._
+import com.fsist.util.FastAsync._
 
 /** Functions to create and work with types extending Pipe[ByteString, ByteString, _]. */
 object BytePipe {
@@ -22,7 +23,7 @@ object BytePipe {
 
       override protected def process(t: Option[ByteString]): Future[Boolean] = async {
         if (done) {
-          val _ = await(emit(t)) // The val _ disables a warning
+          val _ = fastAwait(emit(t)) // The val _ disables a warning
           t.isEmpty
         }
         else t match {
@@ -32,7 +33,7 @@ object BytePipe {
             if (buffer.size >= count) {
               resultPromise.success(buffer.slice(0, count))
               if (buffer.size > count) {
-                val _ = await(emit(Some(buffer.drop(count))))
+                val _ = fastAwait(emit(Some(buffer.drop(count))))
                 done = true
               }
             }

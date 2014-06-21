@@ -12,6 +12,7 @@ import com.fsist.stream.SourceImpl.{SubscriberInfo, SubInfo}
 import scala.util.control.NonFatal
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
+import FastAsync._
 
 /** Base for Future-based mutable state machine implementations of [[Source]].
   *
@@ -88,7 +89,7 @@ trait SourceImpl[T] extends Source[T] {
         Future.failed(e)
     }
     async {
-      await(fut) match {
+      fastAwait(fut) match {
         case Some(t) =>
           logger.trace(s"Produced element $t")
           publishToSub(t)
@@ -119,21 +120,21 @@ trait SourceImpl[T] extends Source[T] {
 
         logger.trace(s"Waiting for subscriber '$subName' to request more data before publishing")
 
-        await(cancelToken.abandonOnCancel(info.requestedCount.decrement()))
+        fastAwait(cancelToken.abandonOnCancel(info.requestedCount.decrement()))
 
         logger.trace(s"Publishing element to subscriber $subName")
         sub.onNext(t)
 
-        await(nextStep)
+        fastAwait(nextStep)
 
       case Right(promise) =>
         logger.trace(s"Waiting for subscribers before publishing")
-        await(promise.future)
+        fastAwait(promise.future)
         if (done.isCompleted) {
-          await(done.future)
+          fastAwait(done.future)
         }
         else {
-          await(publishToSub(t))
+          fastAwait(publishToSub(t))
         }
     }
   }

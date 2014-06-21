@@ -1,11 +1,14 @@
 package com.fsist.util
 
+import com.fsist.stream
 import com.fsist.stream.Source
 import com.typesafe.scalalogging.slf4j.Logging
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
 import scala.concurrent.{ExecutionContext, Promise, Future}
+import scala.async.Async._
+import FastAsync._
 
 /** An asynchronous concurrent unbounded queue. Enqueueing completes immediately, while dequeueing returns a Future
   * that is completed once an object can be removed from the queue.
@@ -72,15 +75,16 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
     *               by this method.
     */
   def source(stopOn: T => Boolean = _ => false, clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext): Source[T] = {
-    @volatile var done : Boolean = false
+    @volatile var done: Boolean = false
 
-    Source.generateM[T]{
+    Source.generateM[T] {
       if (done) {
         logger.trace(s"$clue: producing EOF")
-        Future.successful(None)
+        stream.noneFuture
       }
       else {
-        dequeue() map { t =>
+        async {
+          val t = fastAwait(dequeue())
           if (stopOn(t)) {
             logger.trace(s"$clue: identified next part, will produce EOF next time")
             done = true
@@ -113,8 +117,16 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) {
   private val acks = new AsyncQueue[Unit]()
   for (i <- 1 to queueSize) acks.enqueue(())
 
-  def enqueue(t: T) : Future[Unit] = acks.dequeue() map (_ => queue.enqueue(t))
-  def dequeue() : Future[T] = queue.dequeue() andThen { case _ => acks.enqueue(())}
+  def enqueue(t: T): Future[Unit] = async {
+    fastAwait(acks.dequeue())
+    queue.enqueue(t)
+  }
+
+  def dequeue(): Future[T] = async {
+    val output = fastAwait(queue.dequeue())
+    acks.enqueue(())
+    output
+  }
 
   /** Returns a Source[T] that will dequeue items. If other threads also call dequeue() while the Source is
     * running, some items will go to them and will not appear in the Source's output.

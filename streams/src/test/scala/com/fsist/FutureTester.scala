@@ -97,7 +97,7 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
   }
 
   /** Do nothing for a duration. This is a very poor implementation and no code outside tests should use it. */
-  def await(duration: FiniteDuration): Unit = blocking {
+  def wait(duration: FiniteDuration): Unit = blocking {
     Thread.sleep(scaled(duration).millisPart)
   }
 

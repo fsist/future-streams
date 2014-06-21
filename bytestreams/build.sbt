@@ -1,4 +1,4 @@
-name := "fsist-bytestreams"
+name := "foresight-bytestreams"
 
 scalaVersion := "2.10.4"
 

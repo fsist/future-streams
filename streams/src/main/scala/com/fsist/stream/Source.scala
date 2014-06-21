@@ -9,6 +9,7 @@ import com.fsist.stream.PipeSegment.Passthrough
 import scala.async.Async._
 import scala.util.{Failure, Success, Try}
 import scala.util.control.NonFatal
+import com.fsist.util.FastAsync._
 
 /** A source asynchronously publishes a sequence of zero or more elements of type `T`, followed by an EOF token.
   *
@@ -172,7 +173,7 @@ object Source extends Logging {
 
   /** Returns a Source that outputs the concatenated output of all these sources.
     *
-    * TODO: this could be implemented more cheaply with introducing an extra Pipe and its async queue.
+    * TODO: this could be implemented more cheaply without introducing an extra Pipe and its async queue.
     */
   def concat[T](sources: Iterable[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
       val queue = new BoundedAsyncQueue[Try[Option[T]]](1)
@@ -180,20 +181,21 @@ object Source extends Logging {
 
       async {
         // Await must not be used under a nested function
-        await(sources.foldLeft(success) {
-          case (prevFuture, source) => prevFuture flatMap (_ => source >>| Sink.foreachM(t => queue.enqueue(Success(Some(t)))))
+        fastAwait(sources.foldLeft(success) {
+          case (prevFuture, source) =>
+            prevFuture flatMap (_ => source >>| Sink.foreachM(t => queue.enqueue(Success(Some(t)))))
         })
         done = true
-        await (queue.enqueue(Success(None)))
+        fastAwait (queue.enqueue(Success(None)))
       } recoverWith {
         case NonFatal(e) => queue.enqueue(Failure(e))
       }
 
       def next(): Future[Option[T]] = async {
-        await(queue.dequeue()) match {
+        fastAwait(queue.dequeue()) match {
           case Success(s @ Some(t)) => s
           case Success(None) if done => None
-          case Success(None) => await(next())
+          case Success(None) => fastAwait(next())
           case Failure(e) => throw e
         }
       }

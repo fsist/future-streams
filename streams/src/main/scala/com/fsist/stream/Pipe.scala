@@ -8,6 +8,7 @@ import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import com.fsist.stream.PipeSegment.{Passthrough, WithoutResult}
 import scala.util.control.NonFatal
+import com.fsist.util.FastAsync._
 
 /** A Pipe is a combination of a [[Source]] and a [[Sink]]. It usually does some sort of transformation or intermediate
   * calculation, but it can be any combination of Source and Sink.
@@ -46,8 +47,8 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
       override def produceTo(consumer: Consumer[C]): Unit = next.produceTo(consumer)
       override def getPublisher: Publisher[C] = next.getPublisher
       override def result: Future[(R, R2)] = async {
-        val prevr = await(prev.result)
-        val nextr = await(next.result)
+        val prevr = fastAwait(prev.result)
+        val nextr = fastAwait(next.result)
         (prevr, nextr)
       }
       override def subscriber: Option[Subscriber[C]] = next.subscriber
@@ -74,8 +75,8 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
       override def onComplete(): Unit = prev.onComplete()
       override def onNext(element: A): Unit = prev.onNext(element)
       override def result: Future[(R, R2)] = async {
-        val left = await(prev.result)
-        val right = await(sink.result)
+        val left = fastAwait(prev.result)
+        val right = fastAwait(sink.result)
         (left, right)
       }
       override implicit def ec: ExecutionContext = prev.ec
@@ -101,7 +102,11 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
     */
   def mapResultPipe[R2](func: R => R2): Pipe[A, B, R2] = {
     val orig = this
-    val mappedResult = orig.result.map(func)(ec) // Schedule `func` run even if noone accesses the returned Sink.result
+    val mappedResult = async {
+      val result = fastAwait(orig.result)
+      func(result) // Schedule `func` run even if noone accesses the returned Sink.result
+    }
+
     new Pipe[A, B, R2] {
       override def result: Future[R2] = mappedResult
       override def onSinkDone: Future[Unit] = orig.onSinkDone
@@ -160,15 +165,21 @@ object Pipe {
     new PipeSegment.WithoutResult[A, B] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
-      override protected def process(input: Option[A]): Future[Boolean] = f(input) flatMap (emit) map (_ => input.isEmpty)
+      override protected def process(input: Option[A]): Future[Boolean] = async {
+        val p = fastAwait(f(input))
+        fastAwait(emit(p))
+        input.isEmpty
+      }
     } named "Pipe.flatMapInput"
 
   /** Maps input to output elements. EOF is not represented explicitly. `f` is called non concurrently.
     */
   def flatMap[A, B](f: A => Future[B])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     flatMapInput[A, B] {
-      case Some(a) => f(a) map Some.apply
-      case None => Future.successful(None)
+      case Some(a) => async {
+        Some(fastAwait(f(a)))
+      }
+      case None => noneFuture
     } named "Pipe.flatMap"
 
 
@@ -184,7 +195,7 @@ object Pipe {
   def map[A, B](f: A => B)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[A, B, Unit] =
     flatMapInput[A, B] {
       case Some(a) => Future(Some(f(a)))
-      case None => Future.successful(None)
+      case None => noneFuture
     } named "Pipe.map"
 
   /** A pipe that does not pass elements until `unblock` is called. */
@@ -203,9 +214,10 @@ object Pipe {
       private val pause = Promise[Unit]()
       override def unblock(): Unit = pause.trySuccess(())
 
-      override protected def process(t: Option[A]): Future[Boolean] = {
-        (if (pause.isCompleted) emit(t)
-        else pause.future flatMap { _ => emit(t)}) map (_ => t.isEmpty)
+      override protected def process(t: Option[A]): Future[Boolean] = async {
+        fastAwait(pause.future)
+        fastAwait(emit(t))
+        t.isEmpty
       }
     } named "Pipe.blocker"
 
@@ -217,9 +229,10 @@ object Pipe {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
 
-      override protected def process(input: Option[T]): Future[Boolean] = {
+      override protected def process(input: Option[T]): Future[Boolean] = async {
         resultPromise.trySuccess(input)
-        emit(input) map (_ => input.isEmpty)
+        fastAwait(emit(input))
+        input.isEmpty
       }
     } named "Pipe.tapOne"
 
@@ -228,9 +241,10 @@ object Pipe {
     new PipeSegment.WithoutResult[T, T] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
-      override protected def process(t: Option[T]): Future[Boolean] = {
+      override protected def process(t: Option[T]): Future[Boolean] = async {
         logger.trace(s"$clue: $t")
-        emit(t) map (_ => t.isEmpty)
+        fastAwait(emit(t))
+        t.isEmpty
       }
     } named s"Pipe.log($clue)"
 
@@ -257,16 +271,18 @@ object Pipe {
 
       override protected def mayDiverge: Boolean = true
 
-      override protected def produce(): Future[Option[T]] = queue.dequeue() map {
-        input => if (closed) None else input
+      override protected def produce(): Future[Option[T]] = async {
+        val input = fastAwait(queue.dequeue())
+        if (closed) None else input
       }
 
       override protected def process(input: Option[T]): Future[Boolean] = {
         if (closed) {
           trueFuture
         }
-        else if (input.isDefined) {
-          queue.enqueue(input) map (_ => false)
+        else if (input.isDefined) async {
+          fastAwait(queue.enqueue(input))
+          false
         }
         else {
           falseFuture // Skip EOF
@@ -289,7 +305,7 @@ object Pipe {
       override def cancelToken: CancelToken = cancel
       override def ec: ExecutionContext = ecc
       override protected def process(input: Option[T]): Future[Boolean] = async {
-        await(Future.sequence(Seq(queue.enqueue(input), emit(input))))
+        fastAwait(Future.sequence(Seq(queue.enqueue(input), emit(input))))
         input.isEmpty
       }
     }
@@ -316,22 +332,22 @@ object Pipe {
       private val puller = Sink.puller[S]()
 
       private val build = async {
-        val inner = await(futurePipe)
+        val inner = fastAwait(futurePipe)
         pusher >> inner >>| puller
         resultPromise.completeWith(inner.result)
       }
       
       override protected def process(input: Option[T]): Future[Boolean] = async {
-        await(build) // Fail if the original future failed
-        await(pusher.push(input))
+        fastAwait(build) // Fail if the original future failed
+        fastAwait(pusher.push(input))
 
-        if (input.isEmpty) await(result) // Before returning 'true' the resultPromise must be completed by the inner pipe
+        if (input.isEmpty) fastAwait(result) // Before returning 'true' the resultPromise must be completed by the inner pipe
         input.isEmpty
       }
 
       override protected def produce(): Future[Option[S]] = async {
-        await(build) // Fail if the original future failed
-        await(puller.pull())
+        fastAwait(build) // Fail if the original future failed
+        fastAwait(puller.pull())
       }
     } named "Pipe.flatten"
 }
@@ -373,7 +389,10 @@ trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImp
   /** Convenience overload that emits a sequence of items. */
   protected def emit(outputs: TraversableOnce[Option[B]]): Future[Unit] = {
     outputs.foldLeft(success) {
-      case (fut, next) => fut flatMap (_ => emit(next))
+      case (fut, next) => async {
+        fastAwait(fut)
+        fastAwait(emit(next))
+      }
     }
   }
 }
@@ -392,8 +411,9 @@ object PipeSegment {
     * pipe component.
     */
   trait Passthrough[T] extends WithoutResult[T, T] {
-    override def process(input: Option[T]): Future[Boolean] = {
-      emit(input) map (_ => input.isEmpty)
+    override def process(input: Option[T]): Future[Boolean] = async {
+      fastAwait(emit(input))
+      input.isEmpty
     }
   }
 

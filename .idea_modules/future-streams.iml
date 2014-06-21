@@ -29,6 +29,7 @@
     <orderEntry type="library" name="SBT: org.scala-lang:scala-library:2.10.4" level="project" />
     <orderEntry type="module" module-name="bytestreams" exported="" />
     <orderEntry type="module" module-name="streams" exported="" />
+    <orderEntry type="module" module-name="macros" exported="" />
   </component>
 </module>
 

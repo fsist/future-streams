@@ -7,6 +7,7 @@ import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.util.control.NonFatal
 import java.util.concurrent.atomic.AtomicReference
+import com.fsist.util.FastAsync._
 
 /** Base for Future-based mutable state machine implementations of [[Sink]].
   *
@@ -89,7 +90,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   }
 
   /** Returns a future that is completed when the sink receives end-of-input and finishes all processing. */
-  def onSinkDone: Future[Unit] = sinkDonePromise.future //flatMap (_ => resultPromise.future)
+  def onSinkDone: Future[Unit] = sinkDonePromise.future
 
   /** If overridden to be true, we don't log warnings about a Sink continuing when its Source has completed. */
   protected def mayDiverge: Boolean = false
@@ -97,10 +98,10 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   private def nextStep(): Future[Unit] = async {
     logger.trace(s"Dequeueing input...")
     // TODO make cancelable, eg in case of async call to onError
-    val input = await(buffer.dequeue())
+    val input = fastAwait(buffer.dequeue())
     //    logger.trace(s"Processing $input")
 
-    val isDone = await(try {
+    val isDone = fastAwait(try {
       process(input).toTry
     }
     catch {
@@ -129,12 +130,12 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     else if (input.isDefined) {
       logger.trace(s"Requesting more input")
       subscription.get.requestMore(1)
-      await(nextStep())
+      fastAwait(nextStep())
     }
     else {
       if (! mayDiverge) logger.warn(s"Divergence: the Source has completed, but process() expects more input")
       // Allow ourselves to be resubscribed to another source
-      await(nextStep())
+      fastAwait(nextStep())
     }
   }
 

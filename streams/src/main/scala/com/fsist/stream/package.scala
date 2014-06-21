@@ -14,4 +14,8 @@ package object stream {
 
   /** A shared instance of a successful Future[Boolean] returning false used by code in this package. */
   final val falseFuture : Future[Boolean] = Future.successful(false)
+
+  /** A shared instance of a successful Future[None] used by code in this package. */
+  final val noneFuture : Future[None.type] = Future.successful(None)
 }
+

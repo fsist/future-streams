@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea_modules/bytestreams.iml" filepath="$PROJECT_DIR$/.idea_modules/bytestreams.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea_modules/future-streams.iml" filepath="$PROJECT_DIR$/.idea_modules/future-streams.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea_modules/macros.iml" filepath="$PROJECT_DIR$/.idea_modules/macros.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea_modules/streams.iml" filepath="$PROJECT_DIR$/.idea_modules/streams.iml" />
     </modules>
   </component>

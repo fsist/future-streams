@@ -7,6 +7,8 @@ import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.Some
 import scala.util.control.NonFatal
 import com.fsist.util.{BoundedAsyncQueue, CancelToken}
+import scala.async.Async._
+import com.fsist.util.FastAsync._
 
 /** A Sink receives data from a [[com.fsist.stream.Source]] and asynchronously signals it back when it is ready to receive more.
   * It may have some side effects, and/or calculate a result of type `R`.
@@ -49,17 +51,24 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
     *
     * This is called `mapResult` and not simply `map` to distinguish it from `Source.map` on Pipe.
     */
-  def mapResult[K](func: R => K) : Sink[T, K] = {
+  def mapResult[K](func: R => K): Sink[T, K] = {
     val orig = this
     val mappedResult = orig.result.map(func) // Schedule `func` run even if noone accesses the returned Sink.result
     new Sink[T, K] {
       override def result: Future[K] = mappedResult
+
       override def onSinkDone: Future[Unit] = orig.onSinkDone
+
       override def onError(cause: Throwable): Unit = orig.onError(cause)
+
       override def onSubscribe(subscription: Subscription): Unit = orig.onSubscribe(subscription)
+
       override def onComplete(): Unit = orig.onComplete()
+
       override def onNext(element: T): Unit = orig.onNext(element)
+
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
+
       override def ec: ExecutionContext = orig.ec
     }
   }
@@ -72,18 +81,25 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
     *
     * This is called `flatMapResult` and not simply `flatMap` to distinguish it from `Source.flatMap` on Pipe.
     */
-  def flatMapResult[K](func: R => Future[K]) : Sink[T, K] = {
+  def flatMapResult[K](func: R => Future[K]): Sink[T, K] = {
     val orig = this
     val mappedResult = orig.result.flatMap(func) // Schedule `func` run even if noone accesses the returned Sink.result
     new Sink[T, K] {
       // Lazy vals ensure we only call `func` once
       override def result: Future[K] = mappedResult
+
       override def onSinkDone: Future[Unit] = orig.onSinkDone
+
       override def onError(cause: Throwable): Unit = orig.onError(cause)
+
       override def onSubscribe(subscription: Subscription): Unit = orig.onSubscribe(subscription)
+
       override def onComplete(): Unit = orig.onComplete()
+
       override def onNext(element: T): Unit = orig.onNext(element)
+
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
+
       override def ec: ExecutionContext = orig.ec
     }
   }
@@ -105,6 +121,7 @@ object Sink {
     */
   def foreach[T](f: T => Unit)(implicit ecc: ExecutionContext): Sink[T, Unit] = new SinkImpl.WithoutResult[T] {
     override def ec: ExecutionContext = ecc
+
     protected def process(input: Option[T]): Future[Boolean] = try {
       Future {
         if (input.isDefined) f(input.get)
@@ -123,6 +140,7 @@ object Sink {
     */
   def foreachInput[T](f: Option[T] => Unit)(implicit ecc: ExecutionContext): Sink[T, Unit] = new SinkImpl.WithoutResult[T] {
     override def ec: ExecutionContext = ecc
+
     protected def process(t: Option[T]): Future[Boolean] = try {
       Future {
         f(t)
@@ -141,7 +159,10 @@ object Sink {
     override def ec: ExecutionContext = ecc
 
     protected def process(t: Option[T]): Future[Boolean] = try {
-      f(t) map (_ => t.isEmpty)
+      async {
+        fastAwait(f(t))
+        t.isEmpty
+      }
     }
     catch {
       case NonFatal(e) => Future.failed(e)
@@ -155,10 +176,13 @@ object Sink {
     override def ec: ExecutionContext = ecc
 
     protected def process(input: Option[T]): Future[Boolean] = try {
-      (input match {
-        case Some(t) => f(t)
-        case None => Future.successful(())
-      }) map (_ => input.isEmpty)
+      async {
+        fastAwait(input match {
+          case Some(t) => f(t)
+          case None => success
+        })
+        input.isEmpty
+      }
     }
     catch {
       case NonFatal(e) => Future.failed(e)
@@ -196,7 +220,7 @@ object Sink {
   def fold[T, S, R](initialState: S)(folder: (S, T) => S)(finalStep: S => R)(implicit ecc: ExecutionContext): Sink[T, R] = new SinkImpl[T, R] {
     override def ec: ExecutionContext = ecc
 
-    private var state : S = initialState
+    private var state: S = initialState
 
     override protected def process(input: Option[T]): Future[Boolean] = Future {
       input match {
@@ -216,40 +240,45 @@ object Sink {
   def foldM[T, S, R](initialState: S)(folder: (S, T) => Future[S])(finalStep: S => Future[R])(implicit ecc: ExecutionContext): Sink[T, R] = new SinkImpl[T, R] {
     override def ec: ExecutionContext = ecc
 
-    private var state : S = initialState
+    private var state: S = initialState
 
-    override protected def process(input: Option[T]): Future[Boolean] = {
+    override protected def process(input: Option[T]): Future[Boolean] = async {
       input match {
         case Some(t) =>
-          folder(state, t) map {newState =>
-            state = newState
-            false
-          }
+          val newState = fastAwait(folder(state, t))
+          state = newState
+          false
         case None =>
-          finalStep(state) map { result =>
-            resultPromise.success(result)
-            true
-          }
+          val result = fastAwait(finalStep(state))
+          resultPromise.success(result)
+          true
       }
     }
   } named "Sink.foldM"
 
   /** Returns a Sink which is already done, with a result that is immediately available. It never requests more data from a source. */
-  def done[T, R](r: R)(implicit ecc: ExecutionContext) : Sink[T, R] = new Sink[T, R] {
+  def done[T, R](r: R)(implicit ecc: ExecutionContext): Sink[T, R] = new Sink[T, R] {
     override def result: Future[R] = Future.successful(r)
+
     override def onSinkDone: Future[Unit] = success
+
     override def onError(cause: Throwable): Unit =
       logger.error(s"Notified about error, but we're not subscribed to anything: $cause")
+
     override def onSubscribe(subscription: Subscription): Unit = ()
+
     override def onComplete(): Unit = ()
+
     override def onNext(element: T): Unit = ()
+
     override def getSubscriber: Subscriber[T] = this
+
     override def ec: ExecutionContext = ecc
   } named "Sink.done"
 
   /** Convert a Future[Sink] to an actual Sink. The returned Sink will not request more than one element before the
     * `future` completes. */
-  def flatten[T, R](future: Future[Sink[T, R]])(implicit ecc: ExecutionContext) : Sink[T, R] = {
+  def flatten[T, R](future: Future[Sink[T, R]])(implicit ecc: ExecutionContext): Sink[T, R] = {
     val forwarder = PipeSegment.Passthrough[T] named "Sink.flatten internal pipe"
     future onSuccess {
       case sink => forwarder >>| sink
@@ -257,7 +286,7 @@ object Sink {
     future onFailure {
       case e => forwarder.onError(e)
     }
-    forwarder flatMapResult(_ => future flatMap(_.result))
+    forwarder flatMapResult (_ => future flatMap (_.result))
   } named "Sink.flatten"
 
   /** A sink that exposes elements for external code to pull asynchronously. Return type of `Sink.puller`. */
@@ -279,10 +308,15 @@ object Sink {
       require(bufferSize >= 1)
       private val queue = new BoundedAsyncQueue[Option[T]](bufferSize)
 
-      resultPromise trySuccess(())
+      resultPromise trySuccess (())
 
       override def ec: ExecutionContext = ecc
-      override protected def process(input: Option[T]): Future[Boolean] = queue.enqueue(input) map (_ => input.isEmpty)
+
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        fastAwait(queue.enqueue(input))
+        input.isEmpty
+      }
+
       override def pull(): Future[Option[T]] = queue.dequeue()
     } named "Sink.puller"
 }
