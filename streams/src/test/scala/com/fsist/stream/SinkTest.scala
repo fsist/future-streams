@@ -42,4 +42,35 @@ class SinkTest extends FunSuite with FutureTester {
     val result = (source >>| sink).futureValue(Timeout(1.second))
     assert(result == list)
   }
+
+  test("fold") {
+    val source = Source.from(1 to 10)
+    val sink = Sink.fold[Int, Int, Int](0)(_ + _)(x => x)
+    assert((source >>| sink).futureValue == (1 to 10).sum)
+  }
+
+  test("foldM") {
+    val source = Source.from(1 to 10)
+    val sink = Sink.foldM[Int, Int, Int](0)((a, b) => Future {a + b})(x => Future { x })
+    assert((source >>| sink).futureValue == (1 to 10).sum)
+  }
+
+  test("flatten") {
+    val sink = Sink.flatten(Future { Sink.collect[Int]() })
+    val source = Source.from(1 to 10)
+    assert((source >>| sink).futureValue == (1 to 10))
+  }
+
+  test("puller") {
+    val puller = Sink.puller[Int]()
+    val fut = Source.from(1 to 10) >>| puller
+    awaitTimeout(fut)
+
+    for (x <- (1 to 10)) {
+      assert(puller.pull().futureValue == Some(x))
+    }
+    assert(puller.pull().futureValue == None)
+    fut.futureValue
+  }
+
 }

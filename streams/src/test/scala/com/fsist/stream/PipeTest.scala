@@ -4,10 +4,23 @@ import com.fsist.FutureTester
 import java.util.concurrent.ConcurrentLinkedQueue
 import org.scalatest.FunSuite
 import scala.collection.JavaConversions._
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Future, ExecutionContext}
 
 class PipeTest extends FunSuite with FutureTester {
   implicit val ec : ExecutionContext = ExecutionContext.global
+
+  test("flatMapInput") {
+    val source = Source.from(1 to 10)
+    val sink = Sink.collect[Int]()
+
+    val pipe = Pipe.flatMapInput[Int, Int] {
+      case Some(x) if x <= 5 => Future { Some(x * 2) }
+      case _ => Future.successful(None)
+    }
+
+    val result = (source >> pipe >>| sink).futureValue
+    assert(result == Seq(2, 4, 6, 8, 10))
+  }
 
   test("blocker") {
     val source = Source(1 to 10: _*)
