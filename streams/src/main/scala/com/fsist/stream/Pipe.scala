@@ -324,6 +324,8 @@ object Pipe {
       override protected def process(input: Option[T]): Future[Boolean] = async {
         await(build) // Fail if the original future failed
         await(pusher.push(input))
+
+        if (input.isEmpty) await(result) // Before returning 'true' the resultPromise must be completed by the inner pipe
         input.isEmpty
       }
 

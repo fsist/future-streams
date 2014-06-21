@@ -279,8 +279,10 @@ object Sink {
       require(bufferSize >= 1)
       private val queue = new BoundedAsyncQueue[Option[T]](bufferSize)
 
+      resultPromise trySuccess(())
+
       override def ec: ExecutionContext = ecc
       override protected def process(input: Option[T]): Future[Boolean] = queue.enqueue(input) map (_ => input.isEmpty)
       override def pull(): Future[Option[T]] = queue.dequeue()
-    }
+    } named "Sink.puller"
 }
