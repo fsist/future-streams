@@ -97,4 +97,17 @@ class SourceTest extends FunSuite with FutureTester {
     awaitFailure[CanceledException](source.onSourceDone)
     awaitFailure[CanceledException](sink.onSinkDone)
   }
+
+  test("Replace subscriber") {
+    // Regression test for #16: when the Source is waiting for the old subscriber to requestMore, and we unsubscribe
+    // it and a different subscriber eventually calls requestMore, make sure the Source isn't stuck
+    val source = Source.from(1 to 10)
+    val sink1 = Sink.puller[Int]()
+    val fut = source >>| sink1
+    assert(sink1.pull().futureValue == Some(1))
+
+    sink1.cancelSubscription()
+    val sink2 = Sink.collect[Int]()
+    assert((source >>| sink2).futureValue.size > 0) // Exact size is hard to predict due to buffering in various places
+  }
 }

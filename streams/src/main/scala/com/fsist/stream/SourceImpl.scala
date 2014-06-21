@@ -2,13 +2,13 @@ package com.fsist.stream
 
 import com.fsist.util._
 import org.reactivestreams.api.Consumer
-import org.reactivestreams.spi.{Subscriber, Subscription, Publisher}
+import org.reactivestreams.spi.{Subscription, Subscriber, Publisher}
 import scala.async.Async._
 import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.util.Failure
 import scala.Some
 import scala.util.Success
-import com.fsist.stream.SourceImpl.{SubscriberInfo, SubInfo}
+import com.fsist.stream.SourceImpl.{LinkedSubscription, Unsubscribed, SubscriberInfo, SubInfo}
 import scala.util.control.NonFatal
 import java.util.concurrent.atomic.AtomicReference
 import scala.annotation.tailrec
@@ -23,6 +23,7 @@ import FastAsync._
   * idiomatically using `Source.generateM`.
   */
 trait SourceImpl[T] extends Source[T] {
+
   cancelToken.future map {
     _ =>
       logger.trace(s"Source was canceled")
@@ -120,7 +121,7 @@ trait SourceImpl[T] extends Source[T] {
   private def publishToSub(t: T): Future[Unit] = async {
     val info = subInfo.get // Local copy to avoid races with writers
     info.subscriber match {
-      case Left(SubscriberInfo(sub, _)) =>
+      case Left(SubscriberInfo(sub, subscription)) =>
         val subName = if (logger.underlying.isTraceEnabled) {
           if (sub.isInstanceOf[Sink[T, _]])
             sub.asInstanceOf[Sink[T, _]].name
@@ -131,10 +132,25 @@ trait SourceImpl[T] extends Source[T] {
 
         logger.trace(s"Waiting for subscriber '$subName' to request more data before publishing")
 
-        fastAwait(cancelToken.abandonOnCancel(info.requestedCount.decrement()))
+        val canceled = cancelToken.futureFail
+        val requested = info.requestedCount.decrement()
+        val unsubscribed = subscription.unsubscribed
 
-        logger.trace(s"Publishing element to subscriber $subName")
-        sub.onNext(t)
+        // Attempt to short-circuit
+        if (requested.isCompleted && requested.value.get.isSuccess) {
+          logger.trace(s"Publishing element to subscriber $subName")
+          sub.onNext(t)
+        }
+        else {
+          fastAwait(Future.firstCompletedOf(Seq(canceled, requested, unsubscribed))) match {
+              // If `canceled` completes first, it will fail with a CanceledException which will be thrown out of here
+            case Unsubscribed =>
+              logger.trace(s"Subscriber $subName unsubscribed while we waited for it to request more data")
+            case () =>
+              logger.trace(s"Publishing element to subscriber $subName")
+              sub.onNext(t)
+          }
+        }
 
         fastAwait(nextStep)
 
@@ -169,12 +185,8 @@ trait SourceImpl[T] extends Source[T] {
           logger.error(err)
           subscriber.onError(new IllegalStateException(err))
         case Right(promise) =>
-          val subscription = new Subscription {
-            def cancel(): Unit = unsubscribe(this)
-
-            def requestMore(elements: Int): Unit = request(this, elements)
-          }
-          if (! subInfo.compareAndSet(currentSub, SubInfo(Left(SubscriberInfo(subscriber, subscription))))) {
+          val subscription = new LinkedSubscription(this)
+          if (!subInfo.compareAndSet(currentSub, SubInfo(Left(SubscriberInfo(subscriber, subscription))))) {
             // Lost race
             subscribe(subscriber)
           }
@@ -189,7 +201,7 @@ trait SourceImpl[T] extends Source[T] {
 
   /** Remove this subscription. Equivalent to sub.cancel() */
   @tailrec
-  final def unsubscribe(sub: Subscription): Unit = {
+  private final def unsubscribe(sub: Subscription): Unit = {
     val currentSub = subInfo.get
     currentSub.subscriber match {
       case Left(SubscriberInfo(_, sub2)) if sub2 eq sub =>
@@ -240,9 +252,22 @@ object SourceImpl {
     def apply[T](subscriber: Either[SubscriberInfo[T], Promise[Unit]])(implicit ec: ExecutionContext): SubInfo[T] =
       SubInfo(subscriber, new AsyncSemaphore())
 
-    def none[T](implicit ec: ExecutionContext) : SubInfo[T] = SubInfo[T](Right(Promise[Unit]()))
+    def none[T](implicit ec: ExecutionContext): SubInfo[T] = SubInfo[T](Right(Promise[Unit]()))
   }
 
-  private case class SubscriberInfo[T](subscriber: Subscriber[T], subscription: Subscription)
+  private class LinkedSubscription[T](source: SourceImpl[T]) extends Subscription {
+    private val unsubscribedPromise = Promise[Unsubscribed.type]()
+    val unsubscribed: Future[Unsubscribed.type] = unsubscribedPromise.future
 
+    def cancel(): Unit = {
+      source.unsubscribe(this)
+      unsubscribedPromise.success(Unsubscribed)
+    }
+
+    def requestMore(elements: Int): Unit = source.request(this, elements)
+  }
+
+  private case class SubscriberInfo[T](subscriber: Subscriber[T], subscription: LinkedSubscription[T])
+
+  private object Unsubscribed
 }
