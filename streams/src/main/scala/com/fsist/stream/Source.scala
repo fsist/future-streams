@@ -63,7 +63,7 @@ import com.fsist.util.FastAsync._
   * = Possible states =
   *
   * Once a source has completed (published EOF), failed (published an exception), or been canceled, it will never do
-  * anything again. These events can be observed via onSourceDone`, which completes when the source does,
+  * anything again. These events can be observed via `SourceDone`, which completes when the source does,
   * or fails with the corresponding exception.
   *
   * A Source can only have one subscriber at once. Attempts to add a second subscriber, or to add a subscriber to a
