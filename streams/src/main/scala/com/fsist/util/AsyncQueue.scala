@@ -90,6 +90,14 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
       }
     } named clue
   }
+
+  /** Returns all entries currently enqueued without dequeueing them. */
+  def getEnqueued(): Queue[T] = {
+    get() match {
+      case Left(_) => Queue()
+      case Right(q) => q
+    }
+  }
 }
 
 /** A queue where both insertion and removal are asynchronous, based on a maximum queue size. */
