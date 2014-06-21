@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.{CancelToken, BoundedAsyncQueue, AsyncQueue}
+import com.fsist.util.{CanceledException, CancelToken, BoundedAsyncQueue, AsyncQueue}
 import org.reactivestreams.api.{Processor, Consumer}
 import org.reactivestreams.spi.{Subscriber, Publisher, Subscription}
 import scala.Some
@@ -331,6 +331,12 @@ trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImp
   override protected def failSink(e: Throwable, internal: Boolean): Unit = {
     super.failSink(e, internal)
     failSource(e)
+  }
+
+  cancelToken.future map { _ =>
+    logger.trace(s"PipeSegment was canceled")
+    // SourceImpl already cancels its part, we need to cancel SinkImpl only
+    super.failSink(new CanceledException(), true)
   }
 
   /** Emits an item to the output of this pipe. DO NOTE the following requirements:

@@ -3,7 +3,7 @@ package com.fsist.stream
 import org.reactivestreams.api.Producer
 import org.scalatest.FunSuite
 import com.fsist.FutureTester
-import com.fsist.util.CancelToken
+import com.fsist.util.{CanceledException, CancelToken}
 import scala.concurrent.{Future, ExecutionContext}
 
 class SourceTest extends FunSuite with FutureTester {
@@ -70,5 +70,31 @@ class SourceTest extends FunSuite with FutureTester {
     awaitTimeout(future)
     pusher.push(None).futureValue
     assert(future.futureValue == (1 to 10))
+  }
+
+  test("Cancel Source waiting for demand") {
+    val cancel = CancelToken()
+    val source = Source.from(1 to 10)(ec, cancel)
+    val sink = Sink.puller[Int]()
+    val fut = source >>| sink
+    awaitTimeout(fut)
+
+    cancel.cancel()
+    awaitFailure[CanceledException](fut)
+    awaitFailure[CanceledException](source.onSourceDone)
+    awaitFailure[CanceledException](sink.onSinkDone)
+  }
+
+  test("Cancel Source.pusher") {
+    val cancel = CancelToken()
+    val source = Source.pusher[Int](1)(ec, cancel)
+    val sink = Sink.collect[Int]()
+    val fut = source >>| sink
+    awaitTimeout(fut)
+
+    cancel.cancel()
+    awaitFailure[CanceledException](fut)
+    awaitFailure[CanceledException](source.onSourceDone)
+    awaitFailure[CanceledException](sink.onSinkDone)
   }
 }

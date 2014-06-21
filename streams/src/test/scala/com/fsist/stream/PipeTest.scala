@@ -2,6 +2,7 @@ package com.fsist.stream
 
 import com.fsist.FutureTester
 import java.util.concurrent.ConcurrentLinkedQueue
+import com.fsist.util.{CanceledException, CancelToken}
 import org.scalatest.FunSuite
 import scala.collection.JavaConversions._
 import scala.concurrent.{Future, ExecutionContext}
@@ -73,5 +74,23 @@ class PipeTest extends FunSuite with FutureTester {
       Pipe.map[Int, Int](a => a)
     })
     assert((source >> pipe >>| sink).futureValue == (1 to 10))
+  }
+
+  test("cancel pipe") {
+    val cancel = CancelToken()
+    val source = Source.from(1 to 10)(ec, cancel)
+    val sink = Sink.puller[Int]()
+
+    val cancelPipe = CancelToken()
+    val pipe = Pipe.map[Int, Int](x => x)(ec, cancelPipe)
+
+    val fut = source >> pipe >>| sink
+    awaitTimeout(fut)
+
+    cancelPipe.cancel()
+    awaitFailure[CanceledException](fut)
+    awaitFailure[CanceledException](sink.onSinkDone)
+    awaitFailure[CanceledException](pipe.onSourceDone)
+    awaitFailure[CanceledException](pipe.onSinkDone)
   }
 }

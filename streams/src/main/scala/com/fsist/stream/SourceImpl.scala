@@ -23,6 +23,17 @@ import FastAsync._
   * idiomatically using `Source.generateM`.
   */
 trait SourceImpl[T] extends Source[T] {
+  cancelToken.future map {
+    _ =>
+      logger.trace(s"Source was canceled")
+      done.tryFailure(new CanceledException())
+      val sub = subInfo.get()
+      sub.subscriber match {
+        case Left(SubscriberInfo(subscriber, _)) => subscriber.onError(new CanceledException())
+        case _ =>
+      }
+  }
+
   def getPublisher: Publisher[T] = this
 
   def produceTo(consumer: Consumer[T]): Unit = {
