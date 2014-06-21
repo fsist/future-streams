@@ -43,7 +43,11 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
   /** Returns the result published by `result`, but only once `onSinkDone` is completed. */
   def resultOnDone: Future[R] = onSinkDone flatMap (_ => result)
 
-  /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
+  /** Cancel our linked subscription (if any). The sink may NOT be resubscribed, but this frees the Source
+    * to have a different Sink subscribed. */
+  def cancelSubscription(): Unit
+
+    /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
     *
     * NOTE that this does not create a *separate* sink. In other words, the original sink and this sink cannot
     * be subscribed to different sources; any calls to subscribe(), onNext(), etc. on either one of them affect
@@ -70,6 +74,8 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
 
       override def ec: ExecutionContext = orig.ec
+
+      override def cancelSubscription(): Unit = orig.cancelSubscription()
     }
   }
 
@@ -101,6 +107,8 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
       override def getSubscriber: Subscriber[T] = orig.getSubscriber
 
       override def ec: ExecutionContext = orig.ec
+
+      override def cancelSubscription(): Unit = orig.cancelSubscription()
     }
   }
 
@@ -274,6 +282,8 @@ object Sink {
     override def getSubscriber: Subscriber[T] = this
 
     override def ec: ExecutionContext = ecc
+
+    override def cancelSubscription(): Unit = ()
   } named "Sink.done"
 
   /** Convert a Future[Sink] to an actual Sink. The returned Sink will not request more than one element before the

@@ -52,6 +52,7 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
         (prevr, nextr)
       }
       override def subscriber: Option[Subscriber[C]] = next.subscriber
+      override def cancelSubscription(): Unit = prev.cancelSubscription()
     } named s"${prev.name} >> ${next.name}"
   }
 
@@ -80,6 +81,7 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
         (left, right)
       }
       override implicit def ec: ExecutionContext = prev.ec
+      override def cancelSubscription(): Unit = prev.cancelSubscription()
     } named s"${prev.name} >> ${sink.name}"
   }
 
@@ -122,6 +124,7 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
       override def onComplete(): Unit = orig.onComplete()
       override def onNext(element: A): Unit = orig.onNext(element)
       override def subscriber: Option[Subscriber[B]] = orig.subscriber
+      override def cancelSubscription(): Unit = orig.cancelSubscription()
     }
   } named s"$name.mapResultPipe"
 
@@ -150,6 +153,7 @@ trait Pipe[A, B, R] extends Sink[A, R] with Source[B] with Processor[A, B] {
       override def onComplete(): Unit = orig.onComplete()
       override def onNext(element: A): Unit = orig.onNext(element)
       override def subscriber: Option[Subscriber[B]] = orig.subscriber
+      override def cancelSubscription(): Unit = orig.cancelSubscription()
     }
   } named s"$name.flatMapResultPipe"
 }
