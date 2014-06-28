@@ -1,15 +1,16 @@
 package com.fsist.stream
 
-import com.fsist.util.{BoundedAsyncQueue, CancelToken}
-import com.typesafe.scalalogging.slf4j.Logging
-import org.reactivestreams.api.{Consumer, Producer}
-import org.reactivestreams.spi.{Subscriber, Publisher}
-import scala.concurrent.{Promise, ExecutionContext, Future}
-import com.fsist.stream.PipeSegment.Passthrough
-import scala.async.Async._
-import scala.util.{Failure, Success, Try}
-import scala.util.control.NonFatal
+import com.fsist.stream.PipeSegment.{WithoutResult, Passthrough}
 import com.fsist.util.FastAsync._
+import com.fsist.util.{CanceledException, BoundedAsyncQueue, CancelToken}
+import com.typesafe.scalalogging.slf4j.Logging
+import org.reactivestreams.api.Producer
+import org.reactivestreams.spi.{Publisher, Subscriber}
+
+import scala.async.Async._
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /** A source asynchronously publishes a sequence of zero or more elements of type `T`, followed by an EOF token.
   *
@@ -109,6 +110,117 @@ trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
 
   /** Returns a Source that produces the output of `this` source and then the `next` one. */
   def ++(next: Source[T]): Source[T] = Source.concat(Seq(this, next))
+
+  /** Take up to a set amount of elements from the stream.
+    *
+    * Note that due to the buffering in the current implementation, the original source (`this`) may actually produce
+    * more than `count` elements. Only `count` elements will be emitted by the new Source returned from this method,
+    * but if you intend to reuse the original Source after the new one unsubscribes from it, some elements may be lost.
+    * In that case, consider improving this implementation.
+    *
+    * @param cancelOrigWhenDone if true, the orig Source (`this`) will be `cancel()`ed when enough elements have been
+    *                           taken. If false, it will be merely unsubscribed from.
+    */
+  def take(count: Int, cancelOrigWhenDone: Boolean = false)(implicit ecc: ExecutionContext, cancel: CancelToken): Source[T] = {
+    require(count >= 0)
+
+    val orig = this
+
+    val pipe = new WithoutResult[T, T] {
+      private var taken: Int = 0
+      private var canceledUpstream = false
+
+      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        input match {
+          case Some(t) =>
+            if (taken < count) {
+              taken += 1
+              fastAwait(emit(input))
+              false
+
+            }
+            else {
+              cancelSubscription()
+              if (cancelOrigWhenDone) {
+                orig.cancelToken.cancel()
+              }
+
+              fastAwait(emit(None))
+              true
+            }
+          case None =>
+            fastAwait(emit(None))
+            true
+        }
+      }
+
+      override def onError(cause: Throwable): Unit = cause match {
+        case _: CanceledException if canceledUpstream => // Do nothing
+        case _ => super.onError(cause)
+      }
+    }
+    this >>| pipe
+
+    pipe
+  }
+
+  /** Skip a set amount of elements from the stream. */
+  def skip(count: Int)(implicit ecc: ExecutionContext, cancel: CancelToken): Source[T] = {
+    require(count >= 0)
+
+    val pipe = new WithoutResult[T, T] {
+      var skipped: Int = 0
+
+      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        input match {
+          case Some(t) =>
+            if (skipped < count) {
+              skipped += 1
+              false
+            }
+            else {
+              fastAwait(emit(input))
+              false
+            }
+          case None =>
+            fastAwait(emit(None))
+            true
+        }
+      }
+    }
+    this >>| pipe
+    pipe
+  }
+
+  // The following methods are shortcuts for Sink constructors
+
+  /** Shortcut for `this >>| Sink.foreach` */
+  def foreach(f: T => Unit)(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.foreach(f)(ecc)
+
+  /** Shortcut for `this >>| Sink.foreachInput` */
+  def foreachInput(f: Option[T] => Unit)(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.foreachInput(f)(ecc)
+
+  /** Shortcut for `this >>| Sink.foreachInputM` */
+  def foreachInputM(f: Option[T] => Future[Unit])(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.foreachInputM(f)(ecc)
+
+  /** Shortcut for `this >>| Sink.foreachM` */
+  def foreachM(f: T => Future[Unit])(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.foreachM(f)(ecc)
+
+  /** Shortcut for `this >>| Sink.discard` */
+  def discard()(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.discard(ecc)
+
+  /** Shortcut for `this >>| Sink.collect` */
+  def collect()(implicit ecc: ExecutionContext) : Future[List[T]] = this >>| Sink.collect()(ecc)
+
+  /** Shortcut for `this >>| Sink.fold` */
+  def fold[S, R](initialState: S)(folder: (S, T) => S)(finalStep: S => R)(implicit ecc: ExecutionContext): Future[R] = this >>| Sink.fold(initialState)(folder)(finalStep)(ecc)
+
+  /** Shortcut for `this >>| Sink.foldM` */
+  def foldM[S, R](initialState: S)(folder: (S, T) => Future[S])(finalStep: S => Future[R])(implicit ecc: ExecutionContext): Future[R] = this >>| Sink.foldM(initialState)(folder)(finalStep)(ecc)
 }
 
 object Source extends Logging {
