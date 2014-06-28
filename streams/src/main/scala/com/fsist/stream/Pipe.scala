@@ -1,14 +1,14 @@
 package com.fsist.stream
 
-import com.fsist.util.{CanceledException, CancelToken, BoundedAsyncQueue, AsyncQueue}
-import org.reactivestreams.api.{Processor, Consumer}
-import org.reactivestreams.spi.{Subscriber, Publisher, Subscription}
-import scala.Some
-import scala.async.Async._
-import scala.concurrent.{Promise, Future, ExecutionContext}
-import com.fsist.stream.PipeSegment.{Passthrough, WithoutResult}
-import scala.util.control.NonFatal
+import com.fsist.stream.PipeSegment.Passthrough
 import com.fsist.util.FastAsync._
+import com.fsist.util.{BoundedAsyncQueue, CancelToken, CanceledException}
+import org.reactivestreams.api.{Consumer, Processor}
+import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
+
+import scala.async.Async._
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import spray.http.MessageChunk
 
 /** A Pipe is a combination of a [[Source]] and a [[Sink]]. It usually does some sort of transformation or intermediate
   * calculation, but it can be any combination of Source and Sink.
@@ -298,7 +298,7 @@ object Pipe {
         pusher >> inner >>| puller
         resultPromise.completeWith(inner.result)
       }
-      
+
       override protected def process(input: Option[T]): Future[Boolean] = async {
         fastAwait(build) // Fail if the original future failed
         fastAwait(pusher.push(input))
@@ -338,9 +338,12 @@ trait PipeSegment[A, B, R] extends Pipe[A, B, R] with SourceImpl[B] with SinkImp
   }
 
   cancelToken.future map { _ =>
-    logger.trace(s"PipeSegment was canceled")
-    // SourceImpl already cancels its part, we need to cancel SinkImpl only
-    super.failSink(new CanceledException(), true)
+    if (! onSinkDone.isCompleted) {
+      logger.trace(s"PipeSegment was canceled")
+
+      // SourceImpl already cancels its part, we need to cancel SinkImpl only
+      super.failSink(new CanceledException(), true)
+    }
   }
 
   /** Emits an item to the output of this pipe. DO NOTE the following requirements:
@@ -393,5 +396,4 @@ object PipeSegment {
         override def cancelToken: CancelToken = cancel
       }
   }
-
 }
