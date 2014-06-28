@@ -1,14 +1,14 @@
 package com.fsist.stream
 
-import org.reactivestreams.api.Consumer
-import org.reactivestreams.spi.{Subscription, Subscriber}
-import scala.collection.mutable.ListBuffer
-import scala.concurrent.{Promise, Future, ExecutionContext}
-import scala.Some
-import scala.util.control.NonFatal
-import com.fsist.util.{BoundedAsyncQueue, CancelToken}
-import scala.async.Async._
+import com.fsist.util.BoundedAsyncQueue
 import com.fsist.util.FastAsync._
+import org.reactivestreams.api.Consumer
+import org.reactivestreams.spi.{Subscriber, Subscription}
+
+import scala.async.Async._
+import scala.collection.mutable.ListBuffer
+import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.NonFatal
 
 /** A Sink receives data from a [[com.fsist.stream.Source]] and asynchronously signals it back when it is ready to receive more.
   * It may have some side effects, and/or calculate a result of type `R`.

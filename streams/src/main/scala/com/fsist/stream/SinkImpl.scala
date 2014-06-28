@@ -1,13 +1,15 @@
 package com.fsist.stream
 
-import com.fsist.util.FutureOps._
-import com.fsist.util.{BugException, AsyncQueue}
-import org.reactivestreams.spi.{Subscriber, Subscription}
-import scala.async.Async._
-import scala.concurrent.{Promise, Future, ExecutionContext}
-import scala.util.control.NonFatal
 import java.util.concurrent.atomic.AtomicReference
+
 import com.fsist.util.FastAsync._
+import com.fsist.util.FutureOps._
+import com.fsist.util.{AsyncQueue, BugException}
+import org.reactivestreams.spi.{Subscriber, Subscription}
+
+import scala.async.Async._
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.util.control.NonFatal
 
 /** Base for Future-based mutable state machine implementations of [[Sink]].
   *
