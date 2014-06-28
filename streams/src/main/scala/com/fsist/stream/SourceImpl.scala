@@ -1,18 +1,18 @@
 package com.fsist.stream
 
+import java.util.concurrent.atomic.AtomicReference
+
+import com.fsist.stream.SourceImpl.{LinkedSubscription, SubInfo, SubscriberInfo, Unsubscribed}
+import com.fsist.util.FastAsync._
 import com.fsist.util._
 import org.reactivestreams.api.Consumer
-import org.reactivestreams.spi.{Subscription, Subscriber, Publisher}
-import scala.async.Async._
-import scala.concurrent.{Promise, Future, ExecutionContext}
-import scala.util.Failure
-import scala.Some
-import scala.util.Success
-import com.fsist.stream.SourceImpl.{LinkedSubscription, Unsubscribed, SubscriberInfo, SubInfo}
-import scala.util.control.NonFatal
-import java.util.concurrent.atomic.AtomicReference
+import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
+
 import scala.annotation.tailrec
-import FastAsync._
+import scala.async.Async._
+import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.util.{Failure, Success}
+import scala.util.control.NonFatal
 
 /** Base for Future-based mutable state machine implementations of [[Source]].
   *
@@ -26,13 +26,15 @@ trait SourceImpl[T] extends Source[T] {
 
   cancelToken.future map {
     _ =>
-      logger.trace(s"Source was canceled")
-      done.tryFailure(new CanceledException())
-      val sub = subInfo.get()
-      sub.subscriber match {
-        case Left(SubscriberInfo(subscriber, _)) => subscriber.onError(new CanceledException())
-        case _ =>
+      if (done.tryFailure(new CanceledException())) {
+        logger.trace(s"Source was canceled")
+        val sub = subInfo.get()
+        sub.subscriber match {
+          case Left(SubscriberInfo(subscriber, _)) => subscriber.onError(new CanceledException())
+          case _ =>
+        }
       }
+      else logger.trace(s"Token was canceled after Source had completed, ignoring")
   }
 
   def getPublisher: Publisher[T] = this
