@@ -1,8 +1,10 @@
 package com.fsist.stream
 
 import akka.util.ByteString
-import com.fsist.util.{Nio, CancelToken}
+import com.fsist.util.Nio
 import java.io.{EOFException, InputStream}
+import com.fsist.util.concurrent.CancelToken
+
 import scala.Some
 import scala.concurrent._
 import java.nio.channels.AsynchronousByteChannel

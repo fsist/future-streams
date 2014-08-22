@@ -2,7 +2,7 @@ package com.fsist.stream
 
 import com.fsist.stream.PipeSegment.Passthrough
 import com.fsist.util.FastAsync._
-import com.fsist.util.{BoundedAsyncQueue, CancelToken, CanceledException}
+import com.fsist.util.concurrent.{BoundedAsyncQueue, CancelToken, CanceledException}
 import org.reactivestreams.api.{Consumer, Processor}
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 

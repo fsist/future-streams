@@ -70,7 +70,7 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
 //      case e: TestFailedException if e.cause.isDefined && e.cause.get.isInstanceOf[AskTimeoutException] => ()
 
       // This is not a timeout
-//      case e: Throwable => throw e
+//      case NonFatal(e) => throw e
     }
   }
 
@@ -84,20 +84,23 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
     catch {
       // These are timeouts
       case e: TestFailedDueToTimeoutException => ()
-//      case e: AskTimeoutException => ()
+
       case e: TestFailedException
         if e.message.isDefined && e.message.get.contains("A timeout occurred waiting for a future to complete") => ()
-//      case e: TestFailedException if e.cause.isDefined && e.cause.get.isInstanceOf[AskTimeoutException] => ()
+
+      case e: TestFailedException
+        if e.cause.isDefined && tag.runtimeClass.isInstance(e.cause.get) => ()
 
       case e if tag.runtimeClass.isInstance(e) => ()
 
       // This is not a timeout
-//      case e: Throwable => throw e
+//      case NonFatal(e) =>
+//        throw e
     }
   }
 
   /** Do nothing for a duration. This is a very poor implementation and no code outside tests should use it. */
-  def wait(duration: FiniteDuration): Unit = blocking {
+  def await(duration: FiniteDuration): Unit = blocking {
     Thread.sleep(scaled(duration).millisPart)
   }
 

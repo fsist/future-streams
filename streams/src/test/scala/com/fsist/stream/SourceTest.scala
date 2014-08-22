@@ -3,7 +3,7 @@ package com.fsist.stream
 import org.reactivestreams.api.Producer
 import org.scalatest.FunSuite
 import com.fsist.FutureTester
-import com.fsist.util.{CanceledException, CancelToken}
+import com.fsist.util.concurrent.{CanceledException, CancelToken}
 import scala.concurrent.{Future, ExecutionContext}
 
 class SourceTest extends FunSuite with FutureTester {

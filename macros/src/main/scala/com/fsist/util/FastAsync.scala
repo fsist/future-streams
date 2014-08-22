@@ -1,8 +1,7 @@
 package com.fsist.util
 
-import scala.language.experimental.macros
-
 import scala.concurrent.Future
+import scala.language.experimental.macros
 import scala.reflect.macros.Context
 
 object FastAsync {

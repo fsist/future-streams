@@ -2,7 +2,7 @@ package com.fsist.stream
 
 import com.fsist.FutureTester
 import java.util.concurrent.ConcurrentLinkedQueue
-import com.fsist.util.{CanceledException, CancelToken}
+import com.fsist.util.concurrent.{CanceledException, CancelToken}
 import org.scalatest.FunSuite
 import scala.collection.JavaConversions._
 import scala.concurrent.{Future, ExecutionContext}

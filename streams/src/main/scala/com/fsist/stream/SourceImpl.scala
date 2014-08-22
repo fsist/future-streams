@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream.SourceImpl.{LinkedSubscription, SubInfo, SubscriberInfo, Unsubscribed}
 import com.fsist.util.FastAsync._
-import com.fsist.util._
+import com.fsist.util.concurrent._
 import org.reactivestreams.api.Consumer
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 

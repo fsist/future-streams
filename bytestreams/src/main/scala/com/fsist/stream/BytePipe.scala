@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
-import com.fsist.util.CancelToken
+import com.fsist.util.concurrent.CancelToken
 import akka.util.ByteString
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 import scala.async.Async._

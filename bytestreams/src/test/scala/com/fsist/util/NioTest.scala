@@ -55,7 +55,7 @@ class NioTest extends FunSuite with FutureTester {
     val read2 = reader2 >>| Sink.collect[ByteString]
 
     // Having finished writing, close the sockets' writing side so the Sources can complete
-    wait(100.millis)
+    await(100.millis)
     chan1.close()
     chan2.close()
 

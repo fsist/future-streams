@@ -1,6 +1,6 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
-import scala.concurrent.{Future, Promise, ExecutionContext}
+import scala.concurrent.{ExecutionContext, Future, Promise}
 
 /** A semaphore that provides a Future to those trying to acquire it, instead of blocking.
   *
@@ -11,7 +11,7 @@ import scala.concurrent.{Future, Promise, ExecutionContext}
   * that really help performance?)
   */
 class AsyncSemaphore(initialCount: Long = 0)(implicit ec: ExecutionContext) {
-  import AsyncSemaphore._
+  import com.fsist.util.concurrent.AsyncSemaphore._
 
   @volatile private var count : Long = initialCount
   // Will be fulfilled when the count is increased from 0, and replaced with a new promise

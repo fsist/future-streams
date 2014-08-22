@@ -1,7 +1,8 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
-import org.scalatest.FunSuite
 import com.fsist.FutureTester
+import org.scalatest.FunSuite
+
 import scala.concurrent.{ExecutionContext, Promise}
 
 class CancelTokenTest extends FunSuite with FutureTester {

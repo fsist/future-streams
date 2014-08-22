@@ -1,14 +1,16 @@
-package com.fsist.util
+package com.fsist.util.concurrent
+
+import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream
 import com.fsist.stream.Source
+import com.fsist.util.FastAsync._
 import com.typesafe.scalalogging.slf4j.Logging
-import java.util.concurrent.atomic.AtomicReference
+
 import scala.annotation.tailrec
-import scala.collection.immutable.Queue
-import scala.concurrent.{ExecutionContext, Promise, Future}
 import scala.async.Async._
-import FastAsync._
+import scala.collection.immutable.Queue
+import scala.concurrent.{ExecutionContext, Future, Promise}
 
 /** An asynchronous concurrent unbounded queue. Enqueueing completes immediately, while dequeueing returns a Future
   * that is completed once an object can be removed from the queue.
@@ -75,7 +77,7 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
     *               by this method.
     */
   def source(stopOn: T => Boolean = _ => false, clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext): Source[T] = {
-    @volatile var done: Boolean = false
+    var done: Boolean = false
 
     Source.generateM[T] {
       if (done) {

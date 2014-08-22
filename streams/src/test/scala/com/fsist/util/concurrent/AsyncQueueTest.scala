@@ -1,9 +1,10 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
 import com.fsist.FutureTester
 import com.fsist.stream.Sink
 import com.typesafe.scalalogging.slf4j.Logging
 import org.scalatest.FunSuite
+
 import scala.concurrent.ExecutionContext
 
 class AsyncQueueTest extends FunSuite with FutureTester with Logging {

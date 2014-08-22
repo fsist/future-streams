@@ -3,10 +3,10 @@ package com.fsist.stream
 import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.util.FastAsync._
-import com.fsist.util.FutureOps._
-import com.fsist.util.{AsyncQueue, BugException}
+import com.fsist.util.BugException
+import com.fsist.util.concurrent.AsyncQueue
 import org.reactivestreams.spi.{Subscriber, Subscription}
-
+import com.fsist.util.concurrent.FutureOps._
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal

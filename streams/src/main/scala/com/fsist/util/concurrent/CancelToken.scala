@@ -1,7 +1,7 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
 import scala.concurrent._
-import scala.concurrent.duration.{FiniteDuration, Duration}
+import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
 import scala.util.Try
 
@@ -15,7 +15,7 @@ import scala.util.Try
   * Create instances using the companion object `apply`.
   */
 class CancelToken private(val promise: Promise[Unit], allowCancel: Boolean = true) {
-  import CancelToken._
+  import com.fsist.util.concurrent.CancelToken._
 
   /** @return true iff the token is already canceled. */
   def isCanceled: Boolean = promise.isCompleted

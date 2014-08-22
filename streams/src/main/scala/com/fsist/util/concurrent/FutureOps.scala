@@ -1,11 +1,14 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
-import scala.language.implicitConversions
+import java.util.concurrent.TimeoutException
 
-import scala.concurrent.{ExecutionContext, Future}
 import com.typesafe.scalalogging.slf4j.Logging
-import scala.util.{Failure, Try, Success}
+
+import scala.concurrent.duration.FiniteDuration
+import scala.concurrent.{ExecutionContext, Future}
+import scala.language.implicitConversions
 import scala.util.control.NonFatal
+import scala.util.{Failure, Success, Try}
 
 /** Extra methods on Future[T], with implicit PML conversion.
   * NOTE: this should be a value type, but that hits a known a bug in the Scala compiler that was only fixed in 2.11.
@@ -19,14 +22,14 @@ class FutureOps[T](val fut: Future[T]) extends Logging {
     fut.flatMap (t => {
       that.map(_ => t).recover { case NonFatal(e) => t }
     }).recoverWith {
-      case NonFatal(e) =>
-        that.map(_ => throw e).recover { case NonFatal(e) => throw e }
+      case NonFatal(orig) =>
+        that.map(_ => throw orig).recover { case NonFatal(e) => throw orig }
     }
 
   /** Returns a future that always succeeds and presents the original future's success or failure explicitly.
     * Useful for async/await.
     */
-  def toTry()(implicit ec: ExecutionContext): Future[Try[T]] = fut map(Success.apply) recover { case e => Failure(e) }
+  def toTry()(implicit ec: ExecutionContext): Future[Try[T]] = fut map Success.apply recover { case NonFatal(e) => Failure(e) }
 }
 
 object FutureOps extends Logging {

@@ -2,7 +2,7 @@ package com.fsist.stream
 
 import com.fsist.stream.PipeSegment.{WithoutResult, Passthrough}
 import com.fsist.util.FastAsync._
-import com.fsist.util.{CanceledException, BoundedAsyncQueue, CancelToken}
+import com.fsist.util.concurrent.{CanceledException, BoundedAsyncQueue, CancelToken}
 import com.typesafe.scalalogging.slf4j.Logging
 import org.reactivestreams.api.Producer
 import org.reactivestreams.spi.{Publisher, Subscriber}
@@ -55,10 +55,10 @@ import scala.util.{Failure, Success, Try}
   *
   * = Parametrization with ExecutionContext and CancelToken =
   *
-  * All instances of this type have a `scala.concurrent.ExecutionContext` and a [[com.fsist.util.CancelToken]]
+  * All instances of this type have a `scala.concurrent.ExecutionContext` and a [[com.fsist.util.concurrent.CancelToken]]
   * specified at creation. Futures created by an instance will run in its ExecutionContext;
   * you can allocate different ECs to different instances to gain fine control over scheduling. If the CancelToken
-  * of a source is cancelled, the source fails with a [[com.fsist.util.CanceledException]] (see below regarding Source
+  * of a source is cancelled, the source fails with a [[com.fsist.util.concurrent.CanceledException]] (see below regarding Source
   * states).
   *
   * = Possible states =
@@ -76,11 +76,11 @@ trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
   /** All futures created by this Source will run in this context. */
   implicit def ec: ExecutionContext
 
-  /** Canceling this token will fail the source with a [[com.fsist.util.CanceledException]]. */
+  /** Canceling this token will fail the source with a [[com.fsist.util.concurrent.CanceledException]]. */
   implicit def cancelToken: CancelToken
 
   /** Returns a future that is completed when the source has generated EOF or experienced an error (in which case
-    * the future is failed). If the source is canceled, this future fails with a [[com.fsist.util.CanceledException]].
+    * the future is failed). If the source is canceled, this future fails with a [[com.fsist.util.concurrent.CanceledException]].
     */
   def onSourceDone: Future[Unit]
 
