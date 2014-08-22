@@ -1,11 +1,14 @@
 package com.fsist.stream
 
-import com.fsist.FutureTester
 import java.util.concurrent.ConcurrentLinkedQueue
+
+import com.fsist.FutureTester
+import com.fsist.util.concurrent.CanceledException
 import com.fsist.util.concurrent.{CanceledException, CancelToken}
 import org.scalatest.FunSuite
+
 import scala.collection.JavaConversions._
-import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.{ExecutionContext, Future}
 
 class PipeTest extends FunSuite with FutureTester {
   implicit val ec: ExecutionContext = ExecutionContext.global

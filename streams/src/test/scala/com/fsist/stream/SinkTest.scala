@@ -1,12 +1,13 @@
 package com.fsist.stream
 
 import com.fsist.FutureTester
-import scala.collection.mutable.ListBuffer
 import com.fsist.util.concurrent.CancelToken
-import scala.concurrent.{ExecutionContext, Future}
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
+
+import scala.collection.mutable.ListBuffer
 import scala.concurrent.duration._
+import scala.concurrent.{ExecutionContext, Future}
 
 class SinkTest extends FunSuite with FutureTester {
   implicit val cancelToken: CancelToken = CancelToken.none

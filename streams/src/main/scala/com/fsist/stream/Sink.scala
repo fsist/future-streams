@@ -1,7 +1,7 @@
 package com.fsist.stream
 
-import com.fsist.util.concurrent.BoundedAsyncQueue
 import com.fsist.util.FastAsync._
+import com.fsist.util.concurrent.BoundedAsyncQueue
 import org.reactivestreams.api.Consumer
 import org.reactivestreams.spi.{Subscriber, Subscription}
 
