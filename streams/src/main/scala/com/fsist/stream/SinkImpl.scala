@@ -2,11 +2,12 @@ package com.fsist.stream
 
 import java.util.concurrent.atomic.AtomicReference
 
-import com.fsist.util.FastAsync._
 import com.fsist.util.BugException
-import com.fsist.util.concurrent.AsyncQueue
+import com.fsist.util.FastAsync._
+import com.fsist.util.concurrent.{CanceledException, FutureOps, AsyncQueue}
+import FutureOps._
 import org.reactivestreams.spi.{Subscriber, Subscription}
-import com.fsist.util.concurrent.FutureOps._
+
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future, Promise}
 import scala.util.control.NonFatal
@@ -22,7 +23,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   implicit def ec: ExecutionContext
 
   /** Set exactly once when we are subscribed. A Sink doesn't support resubscribing to a different Source. */
-  private var subscription: AtomicReference[Subscription] = new AtomicReference[Subscription]()
+  private val subscription: AtomicReference[Subscription] = new AtomicReference[Subscription]()
 
   private val buffer: AsyncQueue[Option[T]] = new AsyncQueue[Option[T]]()
 
@@ -76,18 +77,24 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     * @param internal if true, the error occurred in this sink. If false, it came from an upstream Source via `onError`.
     */
   protected def failSink(e: Throwable, internal: Boolean): Unit = {
-    if (internal) {
-      logger.error(s"Processing failed: $e")
-    }
-    else {
-      logger.error(s"Failing due to upstream error: $e")
+    if (! e.isInstanceOf[CanceledException]) {
+      if (internal) {
+        logger.error(s"Processing failed: $e")
+      }
+      else {
+        logger.error(s"Failing due to upstream error: $e")
+      }
     }
 
     if (!resultPromise.tryFailure(e)) {
-      logger.error(s"Result promise already completed, error may be ignored: $e")
+      if (! e.isInstanceOf[CanceledException]) {
+        logger.error(s"Result promise already completed, error may be ignored: $e")
+      }
     }
     if (!sinkDonePromise.tryFailure(e)) {
-      logger.error(s"onSinkDone promise already completed, error will be ignored: $e")
+      if (! e.isInstanceOf[CanceledException]) {
+        logger.error(s"onSinkDone promise already completed, error will be ignored: $e")
+      }
     }
   }
 
@@ -120,7 +127,9 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     else if (isDone.get) {
       // EOF
       logger.trace(s"Sink is done")
-      sinkDonePromise.success(())
+      if (! sinkDonePromise.trySuccess(())) {
+        // Promise was completed with failure in a race condition with us. Nothing to do here.
+      }
 
       if (!resultPromise.isCompleted) {
         val err = s"Implementation of process() did not complete the resultPromise before returning `true`. " +
@@ -151,13 +160,17 @@ trait SinkImpl[T, R] extends Sink[T, R] {
 
   def onSubscribe(sub: Subscription): Unit = {
     if (! subscription.compareAndSet(null, sub)) {
-      logger.error(s"Already subscribed, cannot resubscribe")
+      logger.error(s"Already subscribed to ${subscription.get}, cannot resubscribe to $sub")
+      sub.cancel()
     }
+    else {
+      logger.trace(s"Subscribed to ${sub}")
 
-    // Make sure the state machine is running
-    started
+      // Make sure the state machine is running
+      started
 
-    sub.requestMore(1)
+      sub.requestMore(1)
+    }
   }
 
   /** By default, logs the error; can be overridden. */
