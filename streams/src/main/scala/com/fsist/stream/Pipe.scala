@@ -8,7 +8,6 @@ import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future, Promise}
-import spray.http.MessageChunk
 
 /** A Pipe is a combination of a [[Source]] and a [[Sink]]. It usually does some sort of transformation or intermediate
   * calculation, but it can be any combination of Source and Sink.
