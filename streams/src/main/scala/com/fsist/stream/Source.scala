@@ -2,7 +2,8 @@ package com.fsist.stream
 
 import com.fsist.stream.PipeSegment.{WithoutResult, Passthrough}
 import com.fsist.util.FastAsync._
-import com.fsist.util.concurrent.{CanceledException, BoundedAsyncQueue, CancelToken}
+import com.fsist.util.concurrent.{CanceledException, CancelToken, BoundedAsyncQueue}
+import com.fsist.util.concurrent.CanceledException
 import com.typesafe.scalalogging.slf4j.Logging
 import org.reactivestreams.api.Producer
 import org.reactivestreams.spi.{Publisher, Subscriber}
@@ -55,11 +56,11 @@ import scala.util.{Failure, Success, Try}
   *
   * = Parametrization with ExecutionContext and CancelToken =
   *
-  * All instances of this type have a `scala.concurrent.ExecutionContext` and a [[com.fsist.util.concurrent.CancelToken]]
+  * All instances of this type have a `scala.concurrent.ExecutionContext` and a [[CancelToken]]
   * specified at creation. Futures created by an instance will run in its ExecutionContext;
   * you can allocate different ECs to different instances to gain fine control over scheduling. If the CancelToken
-  * of a source is cancelled, the source fails with a [[com.fsist.util.concurrent.CanceledException]] (see below regarding Source
-  * states).
+  * of a source is cancelled, the source fails with a [[com.fsist.util.concurrent.CanceledException]]
+  * (see below regarding Source states).
   *
   * = Possible states =
   *
@@ -284,36 +285,46 @@ object Source extends Logging {
   }
 
   /** Returns a Source that outputs the concatenated output of all these sources.
-    *
-    * TODO: this could be implemented more cheaply without introducing an extra Pipe and its async queue.
     */
   def concat[T](sources: Iterable[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
-      val queue = new BoundedAsyncQueue[Try[Option[T]]](1)
-      var done = false
+    val queue = new BoundedAsyncQueue[Try[Option[T]]](1)
+    var done = false
 
-      async {
-        // Await must not be used under a nested function
-        fastAwait(sources.foldLeft(success) {
-          case (prevFuture, source) =>
-            prevFuture flatMap (_ => source >>| Sink.foreachM(t => queue.enqueue(Success(Some(t)))))
-        })
-        done = true
-        fastAwait (queue.enqueue(Success(None)))
-      } recoverWith {
-        case NonFatal(e) => queue.enqueue(Failure(e))
+    var stack = sources
+    var current: Option[Source[T]] = None
+    queue.enqueue(Success(None))
+
+    def next(): Future[Option[T]] = async {
+      cancel.throwIfCanceled()
+      fastAwait(queue.dequeue()) match {
+        case Success(s @ Some(t)) => s
+        case Success(None) if stack.isEmpty => None
+        case Success(None) if stack.nonEmpty =>
+          current = Some(stack.head)
+          stack = stack.tail
+          current.get >>| Sink.foreachM { t =>
+            cancel.throwIfCanceled()
+            queue.enqueue(Success(Some(t)))
+          } andThen { case _ => queue.enqueue(Success(None)) }
+          fastAwait(next())
+        case Failure(e) => throw e
       }
-
-      def next(): Future[Option[T]] = async {
-        fastAwait(queue.dequeue()) match {
-          case Success(s @ Some(t)) => s
-          case Success(None) if done => None
-          case Success(None) => fastAwait(next())
-          case Failure(e) => throw e
-        }
-      }
-
-      Source.generateM(next) named "Source.concat"
     }
+
+    Source.generateM(next) named "Source.concat"
+  }
+
+  /** Returns a Source that outputs the concatenated output of all the sources produced by `sources`. */
+  def concat[T](sources: Source[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
+    val pusher = Source.pusher[T]()
+    sources.foreachInputM({
+      case Some(source) =>
+        source.foreachM(pusher.push)
+      case None =>
+        pusher.push(None)
+    })
+    pusher
+  }
 
   /** Converts a Future[Source] to a Source that will start producing elements after the `future` completes. */
   def flatten[T](future: Future[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Source[T] ={
