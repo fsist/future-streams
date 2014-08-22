@@ -1,17 +1,19 @@
 package com.fsist.stream
 
+import com.fsist.FutureTester
+import com.fsist.util.concurrent.CanceledException
+import com.fsist.util.concurrent.{CanceledException, CancelToken}
 import org.reactivestreams.api.Producer
 import org.scalatest.FunSuite
-import com.fsist.FutureTester
-import com.fsist.util.concurrent.{CanceledException, CancelToken}
-import scala.concurrent.{Future, ExecutionContext}
+
+import scala.concurrent.{ExecutionContext, Future}
 
 class SourceTest extends FunSuite with FutureTester {
   implicit val cancelToken: CancelToken = CancelToken.none
   implicit val ec: ExecutionContext = ExecutionContext.global
 
   test("from(Iterator)") {
-    val data = 1 to 1000
+    val data = 1 to 10
     assert((Source.from(data.iterator) >>| Sink.collect()).futureValue == data)
   }
 
@@ -51,10 +53,32 @@ class SourceTest extends FunSuite with FutureTester {
     val source3 = Source(7, 8, 9) named "source3"
     val all = Source.concat(Seq(source1, source2, source3))
 
-    val sink = Sink.collect[Int]()
-    val result = (all >>| sink)
+    val result = all >>| Sink.collect[Int]()
 
     assert(result.futureValue == (1 to 9))
+  }
+
+  test("concat Source[Source[T]]") {
+    val source1 = Source(1, 2, 3) named "source1"
+    val source2 = Source(4, 5, 6) named "source2"
+    val source3 = Source(7, 8, 9) named "source3"
+    val sources = Source(source1, source2, source3)
+
+    val all = Source.concat(sources)
+    val result = all >>| Sink.collect[Int]()
+
+    assert(result.futureValue == (1 to 9))
+  }
+
+  test("concat (infinite sequence)") {
+    import scala.collection.immutable.{Stream => FunctionalStream}
+    lazy val naturals: FunctionalStream[Int] = 1 #:: naturals.map(_ + 1)
+    val sources = naturals.map(x => Source(x, x*x, x*x*x))
+    val all = Source.concat(sources).take(9)
+    val prefix = List(1, 1, 1, 2, 4, 8, 3, 9, 27)
+
+    val result = all >>| Sink.collect()
+    assert(result.futureValue == prefix)
   }
 
   test("flatten") {
@@ -109,5 +133,31 @@ class SourceTest extends FunSuite with FutureTester {
     sink1.cancelSubscription()
     val sink2 = Sink.collect[Int]()
     assert((source >>| sink2).futureValue.size > 0) // Exact size is hard to predict due to buffering in various places
+  }
+
+  test("take") {
+    val source = Source.from(1 to 10)
+    val take = source.take(5)
+    val result = (take >>| Sink.collect()).futureValue
+
+    assert(result == (1 to 5))
+  }
+
+  test("take and cancel") {
+    val cancel = CancelToken()
+    val source = Source.from(1 to 10)(ec, cancel)
+    val take = source.take(5, true)
+    val result = (take >>| Sink.collect()).futureValue
+
+    assert(result == (1 to 5))
+    assert(cancel.isCanceled)
+  }
+
+  test("skip") {
+    val source = Source.from(1 to 10)
+    val take = source.skip(5)
+    val result = (take >>| Sink.collect()).futureValue
+
+    assert(result == (6 to 10))
   }
 }
