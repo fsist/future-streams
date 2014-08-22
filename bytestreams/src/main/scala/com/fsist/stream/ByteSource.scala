@@ -26,6 +26,11 @@ object ByteSource {
 
     private val buffer = new Array[Byte](bufferSize)
 
+    cancel.future.onSuccess {
+      case _ =>
+        stream.close()
+    }
+
     override protected def produce(): Future[Option[ByteString]] = Future {
       blocking {
         stream.read(buffer) match {
