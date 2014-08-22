@@ -2,7 +2,8 @@ package com.fsist.stream
 
 import com.fsist.stream.PipeSegment.Passthrough
 import com.fsist.util.FastAsync._
-import com.fsist.util.concurrent.{BoundedAsyncQueue, CancelToken, CanceledException}
+import com.fsist.util.concurrent.{CanceledException, CancelToken, BoundedAsyncQueue}
+import com.fsist.util.concurrent.CanceledException
 import org.reactivestreams.api.{Consumer, Processor}
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 
@@ -311,6 +312,30 @@ object Pipe {
         fastAwait(puller.pull())
       }
     } named "Pipe.flatten"
+
+  /** Combines an arbitrary Source and Sink into a Pipe.
+    *
+    * This method doesn't connect the Source and Sink in any fashion. E.g., if the sink receives an error from upstream,
+    * the source will not be notified.
+    */
+  def combine[T, S, R](sink: Sink[T, R], source: Source[S])
+                      (implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pipe[T, S, R] = new Pipe[T, S, R] {
+    override def onSourceDone: Future[Unit] = source.onSourceDone
+    override def result: Future[R] = sink.result
+    override def onSinkDone: Future[Unit] = sink.onSinkDone
+    override def cancelSubscription(): Unit = sink.cancelSubscription()
+    override def subscribe(subscriber: Subscriber[S]): Unit = source.subscribe(subscriber)
+    override def getSubscriber: Subscriber[T] = sink.getSubscriber
+    override def onError(cause: Throwable): Unit = sink.onError(cause)
+    override def onSubscribe(subscription: Subscription): Unit = sink.onSubscribe(subscription)
+    override def onComplete(): Unit = sink.onComplete()
+    override def onNext(element: T): Unit = sink.onNext(element)
+    override def produceTo(consumer: Consumer[S]): Unit = source.produceTo(consumer)
+    override def getPublisher: Publisher[S] = source.getPublisher
+    override def cancelToken: CancelToken = cancel
+    override def ec: ExecutionContext = ecc
+    override def subscriber: Option[Subscriber[S]] = source.subscriber
+  }
 }
 
 /** Base for Future-based mutable state machine implementations of [[Pipe]].
