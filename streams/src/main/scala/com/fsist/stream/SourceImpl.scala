@@ -4,7 +4,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream.SourceImpl.{LinkedSubscription, SubInfo, SubscriberInfo, Unsubscribed}
 import com.fsist.util.FastAsync._
-import com.fsist.util.concurrent._
+import com.fsist.util._
+import com.fsist.util.concurrent.{CanceledException, AsyncSemaphore}
 import org.reactivestreams.api.Consumer
 import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
 
@@ -193,8 +194,15 @@ trait SourceImpl[T] extends Source[T] {
             subscribe(subscriber)
           }
           else {
+            try {
+              subscriber.onSubscribe(subscription)
+            }
+            catch {
+              case NonFatal(e) =>
+                logger.error(s"Subscriber rejected subscription: $e")
+                throw e
+            }
             logger.trace(s"Added subscriber")
-            subscriber.onSubscribe(subscription)
             promise.success(())
             started // Force lazy val
           }
@@ -231,8 +239,9 @@ trait SourceImpl[T] extends Source[T] {
         info.requestedCount.increment(count)
       case Left(_) =>
         logger.error(s"request() called with wrong Subscription")
-      case _ =>
-        logger.error(s"request() called but we don't have a subscriber")
+      case Right(promise) =>
+        logger.trace(s"Delaying request($count) call until the subscription process is completed")
+        promise.future map { _ => request(sub, count)}
     }
   }
 }
@@ -267,6 +276,8 @@ object SourceImpl {
     }
 
     def requestMore(elements: Int): Unit = source.request(this, elements)
+
+    override def toString(): String = s"Subscription to ${source.name}"
   }
 
   private case class SubscriberInfo[T](subscriber: Subscriber[T], subscription: LinkedSubscription[T])
