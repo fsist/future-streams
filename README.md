@@ -18,7 +18,7 @@ I chose to implement Reactive Streams, to be compatible with other libraries and
 codebase to another library in the future. The design and implementation is guided by Reactive Streams, rather than
 being some other more complex design that can be converted to/from Reactive Streams interfaces when necessary.
  
-The library implements the Reactive Streams API (both 0.3, and 0.4 as soon as that is released). It should interoperate 
+The library implements the Reactive Streams API 0.3, and will support 0.4 once that is released. It should interoperate 
 with other implementations, although I haven't tested that yet. Once such other implementations are stable, it may
 make sense for me as well for others to switch to another implementation. There's nothing this library does that could
 not *in principle* be done with akka-streams, but that does not mean it *will* be done there.
@@ -45,7 +45,7 @@ Source(1 to 1000) >> Pipe.map(_ * 2) >>| Sink.foreach(println(_))
 
 How is this different from `(1 to 1000) map (_ * 2) foreach (println(_))`? Mainly by its extreme inefficiency. Each step
 along the way - producing an element from the Range, mapping it, and printing it - will run asynchronously in a separate
-Future. Normally you wouldn't want that.
+Future (although see below about `fastAwait`). Normally you wouldn't want that.
 
 Here's a more useful example:
 
@@ -56,7 +56,7 @@ val fut : Future[Unit] = ByteSource(src) >> Pipe.map( some transform on ByteStri
 ```
 
 This passes data asynchronously between two sockets, transforming it on the way. The whole expression returns a 
-`Future[Unit]` that completes when the operation does.
+`Future[Unit]` that completes when the operation does (after the source socket is closed).
 
 You may wonder why we would not simply write:
 
@@ -92,12 +92,6 @@ It also adds some features:
    passed in. The calculated result is available from `Sink.result: Future[R]`.
    Since a `Pipe` is also a `Sink`, pipe segments can also calculate intermediate results.
    
-And in the future:
-
-3. Explicit closing of a Source (via `Source.close()` method). This allows closing all the Sources in a pipeline
-   when a Sink wishes to shut down the pipeline without observing an EOF. The Sources can then close IO resources
-   they may hold open.
-   
 ## Typical use
 
 As demonstrated above, a pipeline can be built using the various constructor methods on the `Source`, `Pipe`, and `Sink`
@@ -122,7 +116,9 @@ Once you have the different elements, you can combine them: `source >> pipe >> p
 
 ### More useful endpoints for Sources and Sinks
 
-Sources and Sinks can be built from `java.nio.AsynchronousByteChannel`s (sockets and files).
+Sources and Sinks can be built from `java.nio.AsynchronousByteChannel`s (sockets). An implementation for 
+`java.nio.AsynchronousFileChannel`s is presently missing, but should be easy to write and would be welcomed.
+
 They can also be built from `java.io.InputStream`s and `OutputStream`s, but since these are inherently blocking,
 they will consume a thread for each such source or sink, and will not scale.
 
@@ -140,7 +136,7 @@ and `Sink.puller`.
 
 ### State machines
 
-Each Source and Sink instance is (potentially) mutable, and obeys the strict concurrency guaranteed specified by
+Each Source and Sink instance is (potentially) mutable, and obeys the strict concurrency guarantee specified by
 Reactive Streams. This lets us write Future-based state machines. I should really come up with better examples
 that actually require asynchronicity, but this should at least demonstrate the mechanism.
 
@@ -260,26 +256,27 @@ whose implementation could probably be optimized.
 
 ## Current state
 
-Everything described above is implemented. However, there are insufficient tests at present, and there may be 
-undiscovered bugs. I consider the library to be beta quality.
+Everything described above is implemented. The code is being used in Foresight's products. I consider it to be 
+production quality.
 
 Some combinator methods are missing which you would expect to be there. This is because the library is originally
-company-internal code, and methods were added on an as-needed basis. 
+company-internal code, and methods are being added on an as-needed basis. 
 
-No API stability guarantee is made.
+No API stability guarantee is made, and in fact the library API changes (rarely) for no very good reason to keep in
+sync with refactorings in the internal Foresight code.
  
-I haven't published artifacts yet, or cross-compiled with scala 2.11. Also, `bytestreams`' dependency is on Akka 2.2,
-because that is what I use in my own code. Akka 2.3 is not binary-compatible with 2.2, so I would have to cross-compile
-for that too. (Assistance with the sbt files would be very welcome.)
+I haven't published artifacts on Maven Central yet, or cross-compiled with scala 2.11. Also, `bytestreams`' dependency 
+is on Akka 2.2, because that is what I use in my own code. Akka 2.3 is not binary-compatible with 2.2, so I would 
+have to cross-compile for that too. (Assistance with the sbt files would be very welcome.)
 
 ## Future plans
 
-Apart from the many small changes and cleanups necessary, the one large change planned is synchronous transformations.
-These would be expressed as `source.map(f: A => B)`, `source.foreach(f: A => Unit)`, etc. Unlike explicitly creating 
-an equivalent Pipe or Sink, they would run synchronously on the Source's own stack.
+Once the Reactive Streams 0.4 standard and TCK is released, I will support it. I will then also ensure compatibility with
+akka-streams. 
 
-The semantics of such a `map` method would be subtly different from `map` methods in other libraries. They would modify
-the original object mapped, because the new Source would be effectively subscribed to the old one, and you could not 
-subscribe something else to the mapped `Source` anymore. (If something was already subscribed, mapping it would fail.)
-For this reason, I may end up naming the `map` method in this example something else that makes it explicit that the
-original object is being modified, like `map!`.
+I originally planned to add synchronous transformation support. Right now it seems to be unnecessary performance-wise
+(for my own use, not in general) and so it is unlikely I will spend time on it. Of course contributions would be welcome,
+but I fear a proper implementation will require some changes to existing APIs and perhaps introduction of new public 
+types, for the same reasons akka-streams need materializers.
+
+Apart from the many small changes and cleanups necessary, the one large change planned is synchronous transformations.
