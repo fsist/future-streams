@@ -6,7 +6,7 @@
     <setting name="vmparams" value="" />
     <setting name="params" value="" />
     <setting name="workingDirectory" value="file://$PROJECT_DIR$" />
-    <setting name="searchForTest" value="Across module dependencies" />
+    <setting name="searchForTest" value="In whole project" />
     <setting name="testName" value="" />
     <setting name="testKind" value="All in package" />
     <setting name="showProgressMessages" value="true" />
