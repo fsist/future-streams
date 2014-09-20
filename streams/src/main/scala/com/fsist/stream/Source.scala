@@ -5,8 +5,7 @@ import com.fsist.util.FastAsync._
 import com.fsist.util.concurrent.{CanceledException, CancelToken, BoundedAsyncQueue}
 import com.fsist.util.concurrent.CanceledException
 import com.typesafe.scalalogging.slf4j.Logging
-import org.reactivestreams.api.Producer
-import org.reactivestreams.spi.{Publisher, Subscriber}
+import org.reactivestreams.{Subscriber, Publisher}
 
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future}
@@ -32,17 +31,17 @@ import scala.util.{Failure, Success, Try}
   * This type has additional restrictions beyond the requirements of `org.reactivestreams.spi.Publisher`:
   *
   * 1. It is a 'cold' publisher. This means it never drops elements; it always waits for the connected Sink to request them.
-  *    This makes it suitable to represent data that already exists (in memory, in a file, etc) or can be read or
-  *    calculated on demand. It is not suitable to represent 'hot' data that is must be dropped if it is not processed
-  *    in time, such as a timer producing a tick event every second.
+  * This makes it suitable to represent data that already exists (in memory, in a file, etc) or can be read or
+  * calculated on demand. It is not suitable to represent 'hot' data that is must be dropped if it is not processed
+  * in time, such as a timer producing a tick event every second.
   *
   * 2. Whenever no Sink is subscribed (both on creation of the Source, and if the Sink subsequently unsubscribes),
-  *    the Source pauses and waits. Only when a Sink is subscribed and has requested an item will the next item be
-  *    produced and published.
+  * the Source pauses and waits. Only when a Sink is subscribed and has requested an item will the next item be
+  * produced and published.
   *
   * 3. Only one Sink can be subscribed at a time. This is a natural fit for 'cold' streams: each new sink expects
-  *    to read the whole stream from the start, not from the point in time when it subscribed, so each sink should
-  *    have its own source. If you need to subscribe multiple sinks to one source, use the `fanout` method.
+  * to read the whole stream from the start, not from the point in time when it subscribed, so each sink should
+  * have its own source. If you need to subscribe multiple sinks to one source, use the `fanout` method.
   *
   * This type also adds methods that a Reactive Streams publisher does not have: see `onSourceDone`.
   *
@@ -73,7 +72,7 @@ import scala.util.{Failure, Success, Try}
   * will not be thrown by the `subscribe` method synchronously; according to the Reactive Streams contract, it will
   * be delivered asynchronously to the attempted subscriber, calling its onError instead of onSubscribe.
   */
-trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
+trait Source[T] extends Publisher[T] with NamedLogger {
   /** All futures created by this Source will run in this context. */
   implicit def ec: ExecutionContext
 
@@ -86,7 +85,7 @@ trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
   def onSourceDone: Future[Unit]
 
   /** @return the currently connected subscriber. */
-  def subscriber: Option[Subscriber[T]]
+  def subscriber: Option[Subscriber[_ >: T]]
 
   /// Beyond this line are methods with concrete implementations.
 
@@ -215,7 +214,7 @@ trait Source[T] extends Producer[T] with Publisher[T] with NamedLogger {
   def discard()(implicit ecc: ExecutionContext): Future[Unit] = this >>| Sink.discard(ecc)
 
   /** Shortcut for `this >>| Sink.collect` */
-  def collect()(implicit ecc: ExecutionContext) : Future[List[T]] = this >>| Sink.collect()(ecc)
+  def collect()(implicit ecc: ExecutionContext): Future[List[T]] = this >>| Sink.collect()(ecc)
 
   /** Shortcut for `this >>| Sink.fold` */
   def fold[S, R](initialState: S)(folder: (S, T) => S)(finalStep: S => R)(implicit ecc: ExecutionContext): Future[R] = this >>| Sink.fold(initialState)(folder)(finalStep)(ecc)
@@ -278,10 +277,10 @@ object Source extends Logging {
     *
     * TODO: this could be implemented more cheaply with introducing an extra Pipe and its async queue.
     */
-  def from[T](producer: Producer[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
+  def from[T](publisher: Publisher[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
     val pipe = Passthrough[T]()
-    producer.produceTo(pipe)
-    pipe named "Source.from(Producer)"
+    publisher.subscribe(pipe)
+    pipe named "Source.from(Publisher)"
   }
 
   /** Returns a Source that outputs the concatenated output of all these sources.
@@ -297,7 +296,7 @@ object Source extends Logging {
     def next(): Future[Option[T]] = async {
       cancel.throwIfCanceled()
       fastAwait(queue.dequeue()) match {
-        case Success(s @ Some(t)) => s
+        case Success(s@Some(t)) => s
         case Success(None) if stack.isEmpty => None
         case Success(None) if stack.nonEmpty =>
           current = Some(stack.head)
@@ -305,7 +304,7 @@ object Source extends Logging {
           current.get >>| Sink.foreachM { t =>
             cancel.throwIfCanceled()
             queue.enqueue(Success(Some(t)))
-          } andThen { case _ => queue.enqueue(Success(None)) }
+          } andThen { case _ => queue.enqueue(Success(None))}
           fastAwait(next())
         case Failure(e) => throw e
       }
@@ -327,7 +326,7 @@ object Source extends Logging {
   }
 
   /** Converts a Future[Source] to a Source that will start producing elements after the `future` completes. */
-  def flatten[T](future: Future[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Source[T] ={
+  def flatten[T](future: Future[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
     val pipe = PipeSegment.Passthrough[T]() named "Source.flatten internal pipe"
     future onSuccess {
       case source => source >>| pipe
@@ -338,6 +337,52 @@ object Source extends Logging {
     pipe
   } named "Source.flatten"
 
+  /** Returns a source that produces the output of each source returned by `next`, calling `next` in a loop forever.
+    *
+    * The returned source never terminates, although it can fail.
+    *
+    * This is slightly different from `Source.concat(Source.generate(next))`: this method guarantees that both `next`
+    * and all sources produced by it will not be called concurrently with one another. Whereas `Source.generate(next)` can
+    * call `next` again while a previously generated source has not yet terminated.
+    */
+  def repeat[T](next: => Source[T])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
+    val pusher = Source.pusher[T]()
+
+    // Fire and forget
+    async {
+      while (true) {
+        cancel.throwIfCanceled()
+        val source = next
+        fastAwait(source.foreachM(pusher.push))
+      }
+    }
+
+    pusher
+  }
+
+  /** Returns a source that produces the output of each source returned by `next`, calling `next` in a loop forever.
+    *
+    * The returned source never terminates, although it can fail.
+    *
+    * This is slightly different from `Source.concat(Source.generate(Some(next)))`: this method guarantees that both `next`
+    * and all sources produced by it will not be called concurrently with one another. Whereas `Source.generate(Some(next))`
+    * can call `next` again while a previously generated source has not yet terminated.
+    */
+  def repeatM[T](next: => Future[Source[T]])(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[T] = {
+    val pusher = Source.pusher[T]()
+
+    // Fire and forget
+    async {
+      while (true) {
+        cancel.throwIfCanceled()
+        val source = fastAwait(next)
+        fastAwait(source.foreachM(pusher.push))
+      }
+    }
+
+    pusher
+  }
+
   /** A Source that allows pushing data through it by calling the extra methods defined here.
     *
     * Each overload of `push` returns a future. It can complete before the source actually produces this element,
@@ -347,9 +392,9 @@ object Source extends Logging {
     * The `push` methods do not have to be called non-concurrently.
     */
   trait Pusher[T] extends Source[T] {
-    def push(t: T) : Future[Unit]
+    def push(t: T): Future[Unit]
     /** If None is passed, the source produces EOF. */
-    def push(input: Option[T]) : Future[Unit]
+    def push(input: Option[T]): Future[Unit]
   }
 
   /** Creates a Source that produces the data that is `push`ed into it. See the `push` methods defined on the [[Pusher]] trait.
@@ -357,17 +402,17 @@ object Source extends Logging {
     * @param bufferSize size of the internal buffer of the Source (for elements pushed in but not yet sent to consumers).
     *                   Must be at least 1.
     */
-  def pusher[T](bufferSize: Int = 1)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pusher[T] = new SourceImpl[T] with Pusher[T] {
+  def pusher[T](bufferSize: Int = 1)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pusher[T] = new SourceImpl[T] with Pusher[T] {
     require(bufferSize >= 1)
     private val queue = new BoundedAsyncQueue[Option[T]](bufferSize)
-    @volatile private var seenEof : Boolean = false
+    @volatile private var seenEof: Boolean = false
 
     override def cancelToken: CancelToken = cancel
     override def ec: ExecutionContext = ecc
     override protected def produce(): Future[Option[T]] = queue.dequeue()
 
-    def push(t: T) : Future[Unit] = push(Some(t))
-    def push(input: Option[T]) : Future[Unit] = {
+    def push(t: T): Future[Unit] = push(Some(t))
+    def push(input: Option[T]): Future[Unit] = {
       // Of course this isn't precise; a few elements might be enqueued after EOF and will be stuck in the queue forever
       if (seenEof) {
         if (input.isEmpty) return success
@@ -383,4 +428,40 @@ object Source extends Logging {
       queue.enqueue(input)
     }
   } named "Source.pusher"
+
+  /** Merge two sources into one, representing the items' origin via `Left` or `Right` constructions.
+    *
+    * The order of the elements emitted is undefined.
+    */
+  def mergeEither[A, B](srca: Source[A], srcb: Source[B])
+                       (implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Source[Either[A, B]] =
+    new SourceImpl[Either[A, B]] {
+
+      private val queue = new BoundedAsyncQueue[Option[Either[A, B]]](1)
+      srca >>| Sink.foreachM(t => queue.enqueue(Some(Left(t))))
+      srcb >>| Sink.foreachM(t => queue.enqueue(Some(Right(t))))
+
+      // Fire and forget: completion
+      async {
+        fastAwait(Future.sequence(Seq(srca.onSourceDone, srcb.onSourceDone)))
+        queue.enqueue(None)
+      }
+
+      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+
+      override protected def produce(): Future[Option[Either[A, B]]] = {
+        // If either source failed, propagate the exception
+        for (src <- Seq(srca, srcb)) {
+          src.onSourceDone.value match {
+            case Some(Failure(e)) =>
+              throw e
+            case _ =>
+          }
+        }
+
+        queue.dequeue()
+      }
+
+    } named "Source.mergeEither"
 }

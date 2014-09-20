@@ -69,6 +69,20 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
       else Future.successful(t)
   }
 
+  /** Try to dequeue an item synchronously if the queue is not empty. This competes synchronously with other calls to
+    * `dequeue` and `tryDequeue`, and fairness is not guaranteed, so this method technically may never complete.
+    */
+  @tailrec final def tryDequeue(): Option[T] = get match {
+    case l@Left(q) => // Already has waiting consumers
+      None
+    case r@Right(Queue()) => // Empty queue
+      None
+    case r@Right(q) => // Already has values. get the head
+      val (t, ts) = q.dequeue
+      if (!compareAndSet(r, Right(ts))) tryDequeue()
+      else Some(t)
+  }
+
   /** Returns a Source[T] that will dequeue items. If other threads also call dequeue() while the Source is
     * running, some items will go to them and will not appear in the Source's output.
     *
@@ -97,6 +111,18 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
     } named clue
   }
 
+  /** If `T` is a subtype of `Option[R]` for some type `R`, this produces a source that behaves according to the
+    * future-streams convention: the stream produces the R values until it sees a None input, when it emits EOF.
+    *
+    * Like the method `source`, if other threads also call dequeue() while the Source is
+    * running, some items will go to them and will not appear in the Source's output.
+    */
+  def optionSource[R](clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext, ev: T <:< Option[R]): Source[R] = {
+    logger.trace(s"optionSource")
+    // Why can't I make this work with static typing, given the `ev` evidence?
+    Source.generateM[R](dequeue.asInstanceOf[Future[Option[R]]]) named clue
+  }
+
   /** Returns all entries currently enqueued without dequeueing them. */
   def getEnqueued(): Queue[T] = {
     get() match {
@@ -107,7 +133,9 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
 }
 
 /** A queue where both insertion and removal are asynchronous, based on a maximum queue size. */
-class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) {
+class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) extends Logging {
+  require(queueSize >= 1)
+
   // The null check is because of bugs that happened in several places in a similar way, where we tried passing an
   // implicit ec parameter that was sourced from an implicit val that wasn't yet initialized when we constructed the queue
   require(ec != null)
@@ -130,6 +158,40 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) {
     output
   }
 
+  /** Try to dequeue an item synchronously if the queue is not empty. This competes synchronously with other calls to
+    * `dequeue` and `tryDequeue`, and fairness is not guaranteed, so this method technically may never complete.
+    */
+  def tryDequeue(): Option[T] = {
+    queue.tryDequeue() match {
+      case s @ Some(t) =>
+        acks.enqueue(())
+        s
+      case None => None
+    }
+  }
+
+  /** Dequeues as many items as possible synchronously, and returns them in a single batch in an already-completed future.
+    * If no items can be dequeued synchronously, returns a future that will complete with a single item, via an ordinary
+    * call to `dequeue`.
+    */
+  def dequeueBatch(): Future[IndexedSeq[T]] = {
+    val builder = IndexedSeq.newBuilder[T]
+
+    @tailrec def next(): Unit = tryDequeue() match {
+      case Some(t) =>
+        builder += t
+        next()
+      case None =>
+        builder.result()
+    }
+
+    next()
+
+    val dequeued = builder.result()
+    if (dequeued.nonEmpty) Future.successful(dequeued)
+    else dequeue() map (IndexedSeq.apply(_))
+  }
+
   /** Returns a Source[T] that will dequeue items. If other threads also call dequeue() while the Source is
     * running, some items will go to them and will not appear in the Source's output.
     *
@@ -137,7 +199,16 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) {
     *               This does not affect the queue itself, nor other Sources returned later from the same queue
     *               by this method.
     */
-  def source(stopOn: T => Boolean = _ => false, clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext): Source[T] =
+  def source(stopOn: T => Boolean = _ => false, clue: String = "BoundedAsyncQueue.source")(implicit ec: ExecutionContext): Source[T] =
     queue.source(stopOn, clue)(ec)
+
+  /** If `T` is a subtype of `Option[R]` for some type `R`, this produces a source that behaves according to the
+    * future-streams convention: the stream produces the R values until it sees a None input, when it emits EOF.
+    *
+    * Like the method `source`, if other threads also call dequeue() while the Source is
+    * running, some items will go to them and will not appear in the Source's output.
+    */
+  def optionSource[R](clue: String = "BoundedAsyncQueue.source")(implicit ec: ExecutionContext, ev: T <:< Option[R]): Source[R] =
+    queue.optionSource(clue)
 }
 

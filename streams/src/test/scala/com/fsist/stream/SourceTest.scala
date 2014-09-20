@@ -3,7 +3,7 @@ package com.fsist.stream
 import com.fsist.FutureTester
 import com.fsist.util.concurrent.CanceledException
 import com.fsist.util.concurrent.{CanceledException, CancelToken}
-import org.reactivestreams.api.Producer
+import org.reactivestreams.Publisher
 import org.scalatest.FunSuite
 
 import scala.concurrent.{ExecutionContext, Future}
@@ -41,9 +41,9 @@ class SourceTest extends FunSuite with FutureTester {
     } >>| Sink.collect()).futureValue == (1 until max))
   }
 
-  test("from(Producer)") {
-    val producer : Producer[Int] = Source.from(1 to 100)
-    val source = Source.from(producer)
+  test("from(Publisher)") {
+    val publisher : Publisher[Int] = Source.from(1 to 100)
+    val source = Source.from(publisher)
     assert((source >>| Sink.collect()).futureValue == (1 to 100))
   }
 
@@ -159,5 +159,16 @@ class SourceTest extends FunSuite with FutureTester {
     val result = (take >>| Sink.collect()).futureValue
 
     assert(result == (6 to 10))
+  }
+
+  test("mergeEither") {
+    val srca = Source.from(1 to 10)
+    val srcb = Source("foo", "bar")
+
+    val merged = Source.mergeEither(srca, srcb).named("merged")
+    val collected = (merged >>| Sink.collect()).futureValue
+    val expected = (1 to 10).map(Left.apply) ++ Seq("foo", "bar").map(Right.apply)
+    assert(collected.size == expected.size, "Correct number of items collected")
+    assert(collected.toSet == expected.toSet, "Correct items collected")
   }
 }

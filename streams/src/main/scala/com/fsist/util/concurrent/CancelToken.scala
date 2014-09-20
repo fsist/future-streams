@@ -1,5 +1,7 @@
 package com.fsist.util.concurrent
 
+import com.fsist.util.concurrent.UnsubscribablePromise.RegHandle
+
 import scala.concurrent._
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.reflect.ClassTag
@@ -14,7 +16,7 @@ import scala.util.Try
   *
   * Create instances using the companion object `apply`.
   */
-class CancelToken private(val promise: Promise[Unit], allowCancel: Boolean = true) {
+class CancelToken private(val promise: UnsubscribablePromise[Unit], allowCancel: Boolean = true) {
   import com.fsist.util.concurrent.CancelToken._
 
   /** @return true iff the token is already canceled. */
@@ -37,12 +39,12 @@ class CancelToken private(val promise: Promise[Unit], allowCancel: Boolean = tru
   def cancel(): Boolean = if (allowCancel) promise.trySuccess(()) else throw new IllegalArgumentException("This token doens't allow cancellation")
 
   /** Returns a future that is completed when the token is canceled (it may be already completed when it's returned). */
-  def future: Future[Unit] = if (allowCancel) promise.future else never
+  lazy val future: UnsubscribableFuture[Unit] = if (allowCancel) promise.future else never
 
   /** Returns a future that is failed with a CanceledException when the token is canceled (it may be already completed when it's returned). */
-  def futureFail(implicit ec: ExecutionContext): Future[Unit] =
+  lazy val futureFail: Future[Unit] =
     if (allowCancel) {
-      future flatMap (_ => Future.failed(new CanceledException()))
+      future.flatMap(_ => failedWithCancel)(ExecutionContext.global)
     } else never
 
   /** The returned future does one of two things:
@@ -58,18 +60,23 @@ class CancelToken private(val promise: Promise[Unit], allowCancel: Boolean = tru
     */
   def abandonOnCancel[T](other: Future[T])(implicit ec: ExecutionContext): Future[T] =
     if (allowCancel) {
-      Future.firstCompletedOf(Seq(futureFail.map(_.asInstanceOf[T]), other))
+      promise.future.firstCompletedOr(Seq(other)) map { result =>
+        if (promise.isCompleted) throw new CanceledException()
+        else result.asInstanceOf[T]
+      }
     }
     else other
 }
 
 object CancelToken {
-  def apply(): CancelToken = new CancelToken(Promise[Unit]())
+  def apply(): CancelToken = new CancelToken(new UnsubscribablePromise[Unit]())
 
   /** A singleton token that can never be cancelled. */
-  val none: CancelToken = new CancelToken(Promise[Unit](), false)
+  val none: CancelToken = new CancelToken(new UnsubscribablePromise[Unit](), false)
 
-  private val never : Future[Unit] = new NeverFuture()
+  private val never : UnsubscribableFuture[Unit] = new NeverFuture().asInstanceOf[UnsubscribableFuture[Unit]] // Should be a safe cast
+
+  private val failedWithCancel = Future.failed(new CanceledException())
 }
 
 /** Thrown by methods of CancelToken as documented when an operation has been canceled. */
@@ -80,7 +87,7 @@ class CanceledException(msg: String = "Token canceled") extends Exception(msg)
   *
   * Credited to Viktor Klang. Cf also https://github.com/viktorklang/scala/commit/0f91e9050e1b5fa7a9aecfd973f85f83d6d6b0d2
   */
-class NeverFuture() extends Future[Nothing] {
+class NeverFuture() extends UnsubscribableFuture[Nothing] {
   type T = Nothing
   override def onSuccess[U](pf: PartialFunction[T, U])(implicit executor: ExecutionContext): Unit = ()
   override def onFailure[U](pf: PartialFunction[Throwable, U])(implicit executor: ExecutionContext): Unit = ()
@@ -120,5 +127,11 @@ class NeverFuture() extends Future[Nothing] {
   override def ready(atMost: Duration)(implicit permit: CanAwait): this.type = {
     ready(atMost)
     throw new TimeoutException
+  }
+
+  override def unregister(handle: RegHandle[Nothing]): Boolean = false
+  override def onCompleteU[U](func: (Try[Nothing]) => U)(implicit executor: ExecutionContext): RegHandle[Nothing] = {
+    onComplete(func)
+    func
   }
 }

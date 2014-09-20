@@ -20,7 +20,7 @@ copy fs_LibMacros macros src/main/scala/com/fsist/util/FastAsync.scala
 copy fs_Lib streams src/main/scala/com/fsist/util/BugException.scala
 
 # Excluded: FutureOps.scala in foresight-ng depends on akka scheduler
-for x in AsyncQueue AsyncSemaphore CancelToken; do
+for x in AsyncQueue AsyncSemaphore CancelToken UnsubscribablePromise; do
     copy fs_Lib streams src/main/scala/com/fsist/util/concurrent/$x.scala
 done
 
@@ -37,7 +37,7 @@ for x in NamedLogger package Pipe Sink SinkImpl Source SourceImpl package; do
     copy fs_Lib streams src/main/scala/com/fsist/stream/$x.scala
 done
 
-for x in SourceTest PipeTest SinkTest; do
+for x in SourceTest PipeTest SinkTest TckTests; do
     copy fs_Lib streams src/test/scala/com/fsist/stream/$x.scala
 done
 

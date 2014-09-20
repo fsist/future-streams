@@ -4,10 +4,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream.SourceImpl.{LinkedSubscription, SubInfo, SubscriberInfo, Unsubscribed}
 import com.fsist.util.FastAsync._
-import com.fsist.util._
-import com.fsist.util.concurrent.{CanceledException, AsyncSemaphore}
-import org.reactivestreams.api.Consumer
-import org.reactivestreams.spi.{Publisher, Subscriber, Subscription}
+import com.fsist.util.concurrent.{UnsubscribableFuture, UnsubscribablePromise, CanceledException, AsyncSemaphore}
+import org.reactivestreams.{Subscription, Subscriber, Publisher}
 
 import scala.annotation.tailrec
 import scala.async.Async._
@@ -38,13 +36,7 @@ trait SourceImpl[T] extends Source[T] {
       else logger.trace(s"Token was canceled after Source had completed, ignoring")
   }
 
-  def getPublisher: Publisher[T] = this
-
-  def produceTo(consumer: Consumer[T]): Unit = {
-    subscribe(consumer.getSubscriber)
-  }
-
-  private val subInfo: AtomicReference[SubInfo[T]] = new AtomicReference[SubInfo[T]](SubInfo.none[T])
+  private val subInfo: AtomicReference[SubInfo[_ >: T]] = new AtomicReference[SubInfo[_ >: T]](SubInfo.none[T])
 
   /** Must be implemented to produce the next input element to be sent to subscribers. This method is called non-concurrently.
     *
@@ -59,7 +51,7 @@ trait SourceImpl[T] extends Source[T] {
 
   def onSourceDone: Future[Unit] = done.future
 
-  def subscriber: Option[Subscriber[T]] = subInfo.get.subscriber match {
+  def subscriber: Option[Subscriber[_ >: T]] = subInfo.get.subscriber match {
     case Left(SubscriberInfo(subscriber, _)) => Some(subscriber)
     case _ => None
   }
@@ -135,7 +127,6 @@ trait SourceImpl[T] extends Source[T] {
 
         logger.trace(s"Waiting for subscriber '$subName' to request more data before publishing")
 
-        val canceled = cancelToken.futureFail
         val requested = info.requestedCount.decrement()
         val unsubscribed = subscription.unsubscribed
 
@@ -145,8 +136,9 @@ trait SourceImpl[T] extends Source[T] {
           sub.onNext(t)
         }
         else {
-          fastAwait(Future.firstCompletedOf(Seq(canceled, requested, unsubscribed))) match {
-              // If `canceled` completes first, it will fail with a CanceledException which will be thrown out of here
+          val firstCompleted = fastAwait(cancelToken.future.firstCompletedOr(Seq(requested, unsubscribed)))
+          cancelToken.throwIfCanceled()
+          firstCompleted match {
             case Unsubscribed =>
               logger.trace(s"Subscriber $subName unsubscribed while we waited for it to request more data")
             case () =>
@@ -170,7 +162,7 @@ trait SourceImpl[T] extends Source[T] {
   }
 
   @tailrec
-  final def subscribe(subscriber: Subscriber[T]): Unit =
+  final def subscribe(subscriber: Subscriber[_ >: T]): Unit =
     if (onSourceDone.isCompleted) {
       onSourceDone.value.get match {
         case Success(_) =>
@@ -214,9 +206,9 @@ trait SourceImpl[T] extends Source[T] {
   private final def unsubscribe(sub: Subscription): Unit = {
     val currentSub = subInfo.get
     currentSub.subscriber match {
-      case Left(SubscriberInfo(_, sub2)) if sub2 eq sub =>
+      case Left(SubscriberInfo(subscriber, sub2)) if sub2 eq sub =>
         if (subInfo.compareAndSet(currentSub, SubInfo.none[T])) {
-          logger.trace(s"Removed subscriber")
+          logger.trace(s"Removed subscriber ${subscriber}")
         }
         else {
           // Lost race
@@ -230,13 +222,21 @@ trait SourceImpl[T] extends Source[T] {
   }
 
   /** Request more elements for this subscription. Equivalent to sub.requestMore(count) */
-  def request(sub: Subscription, count: Int): Unit = {
+  def request(sub: Subscription, count: Long): Unit = {
+    if (count <= 0) {
+      throw new IllegalArgumentException(s"Cannot request $count (<=0) items, ReactiveStreams spec rule 3.9")
+    }
+
     // Local copy to prevent races with writer
     val info = subInfo.get
     info.subscriber match {
       case Left(SubscriberInfo(_, sub2)) if sub2 eq sub =>
         logger.trace(s"Subscriber requested $count more")
-        info.requestedCount.increment(count)
+        if (info.requestedCount.increment(count) < 0) {
+          // Wraparound occured
+          failSource(new IllegalStateException(
+            s"Total pending count exceeded Long.MaxValue after requesting $count more items; this is illegal by reactive streams spec rule 3.17"))
+        }
       case Left(_) =>
         logger.error(s"request() called with wrong Subscription")
       case Right(promise) =>
@@ -267,20 +267,22 @@ object SourceImpl {
   }
 
   private class LinkedSubscription[T](source: SourceImpl[T]) extends Subscription {
-    private val unsubscribedPromise = Promise[Unsubscribed.type]()
-    val unsubscribed: Future[Unsubscribed.type] = unsubscribedPromise.future
+    private val unsubscribedPromise = new UnsubscribablePromise[Unsubscribed.type]()
+    val unsubscribed: UnsubscribableFuture[Unsubscribed.type] = unsubscribedPromise.future
 
     def cancel(): Unit = {
       source.unsubscribe(this)
-      unsubscribedPromise.success(Unsubscribed)
+      unsubscribedPromise.trySuccess(Unsubscribed)
     }
 
-    def requestMore(elements: Int): Unit = source.request(this, elements)
+    def request(elements: Long): Unit = source.request(this, elements)
 
     override def toString(): String = s"Subscription to ${source.name}"
   }
 
-  private case class SubscriberInfo[T](subscriber: Subscriber[T], subscription: LinkedSubscription[T])
+  import scala.language.existentials
+  private case class SubscriberInfo[T](subscriber: Subscriber[_ >: T], subscription: LinkedSubscription[_ >: T])
 
   private object Unsubscribed
+
 }

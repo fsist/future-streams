@@ -43,10 +43,10 @@ class NioTest extends FunSuite with FutureTester {
     val data1 = generateData()
     val data2 = generateData()
 
-    val writer1 = ByteSink(chan1)
-    val reader1 = ByteSource(chan1)
-    val writer2 = ByteSink(chan2)
-    val reader2 = ByteSource(chan2)
+    val writer1 = ByteSink.toByteChannel(chan1, false)
+    val reader1 = ByteSource.fromByteChannel(chan1, closeOnDone = false)
+    val writer2 = ByteSink.toByteChannel(chan2, false)
+    val reader2 = ByteSource.fromByteChannel(chan2, closeOnDone = false)
 
     (Source(data1) >>| writer1).futureValue
     (Source(data2) >>| writer2).futureValue
@@ -54,16 +54,13 @@ class NioTest extends FunSuite with FutureTester {
     val read1 = reader1 >>| Sink.collect[ByteString]
     val read2 = reader2 >>| Sink.collect[ByteString]
 
-    // Having finished writing, close the sockets' writing side so the Sources can complete
-    await(100.millis)
+    // Close the channels to let the readers see EOF and complete
     chan1.close()
     chan2.close()
+    await(100.millis)
 
     assert(readAll(read1) === data2, "Data was transferred")
     assert(readAll(read2) === data1, "Data was transferred (2)")
-
-    chan1.close()
-    chan2.close()
   }
 
   def readAll(chunks: Future[List[ByteString]]) = chunks.futureValue.fold(ByteString()){case (a,b) => a++b}

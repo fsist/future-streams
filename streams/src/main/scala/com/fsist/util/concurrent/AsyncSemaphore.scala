@@ -18,7 +18,8 @@ class AsyncSemaphore(initialCount: Long = 0)(implicit ec: ExecutionContext) {
   @volatile private var promise : Promise[Unit] = Promise[Unit]()
   private val lock = new AnyRef
 
-  def increment(by: Int = 1): Unit = {
+  /** Returns the new count. */
+  def increment(by: Long = 1): Long = {
     require(by > 0)
 
     lock.synchronized {
@@ -27,6 +28,7 @@ class AsyncSemaphore(initialCount: Long = 0)(implicit ec: ExecutionContext) {
         promise = Promise[Unit]()
       }
       count += by
+      count
     }
   }
 

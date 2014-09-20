@@ -1,5 +1,6 @@
 package com.fsist.stream
 
+import com.fsist.stream.PipeSegment.Passthrough
 import com.fsist.util.concurrent.CancelToken
 
 import scala.concurrent.{Promise, Future, ExecutionContext}
@@ -13,12 +14,12 @@ object BytePipe {
   /** Take these many bytes, produce them as the result, and forward all other bytes unmodified.
     *
     * If fewer than `count` bytes are present in the input stream, the `result` fails with a [[TakeTapNotEnoughInputException]]. */
-  def takeTap(count: Int)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pipe[ByteString, ByteString, ByteString] =
+  def takeTap(count: Int)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[ByteString, ByteString, ByteString] =
     new PipeSegment[ByteString, ByteString, ByteString] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
 
-      private var buffer : ByteString = ByteString.empty
+      private var buffer: ByteString = ByteString.empty
       private var done: Boolean = false
 
       override protected def process(t: Option[ByteString]): Future[Boolean] = async {
@@ -31,7 +32,7 @@ object BytePipe {
             buffer ++= bytes
 
             if (buffer.size >= count) {
-              resultPromise.success(buffer.slice(0, count))
+              resultPromise.trySuccess(buffer.slice(0, count))
               if (buffer.size > count) {
                 val _ = fastAwait(emit(Some(buffer.drop(count))))
                 done = true
@@ -40,7 +41,7 @@ object BytePipe {
 
             false
           case None =>
-            resultPromise.failure(new TakeTapNotEnoughInputException(count, buffer))
+            resultPromise.tryFailure(new TakeTapNotEnoughInputException(count, buffer))
             emit(None)
             true
         }
@@ -62,7 +63,7 @@ object BytePipe {
     *
     * If fewer than `count` bytes are present in the input stream, produces only those that do exist, but does not fail.
     */
-  def take(toTake: Long)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pipe[ByteString, ByteString, Unit] =
+  def take(toTake: Long)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[ByteString, ByteString, Unit] =
     new PipeSegment.WithoutResult[ByteString, ByteString] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
@@ -91,7 +92,7 @@ object BytePipe {
   /** Drops this many bytes from the input and forwards all the rest. If fewer than `toDrop` bytes exist in the input,
     * nothing will be forwarded.
     */
-  def drop(toDrop: Long)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none) : Pipe[ByteString, ByteString, Unit] =
+  def drop(toDrop: Long)(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[ByteString, ByteString, Unit] =
     new PipeSegment.WithoutResult[ByteString, ByteString] {
       override def ec: ExecutionContext = ecc
       override def cancelToken: CancelToken = cancel
@@ -112,4 +113,22 @@ object BytePipe {
       }
     } named "BytePipe.drop"
 
+  /** A pipe that counts the bytes passed through it and produces the count as the result. */
+  def count()(implicit ecc: ExecutionContext, cancel: CancelToken = CancelToken.none): Pipe[ByteString, ByteString, Long] =
+    new PipeSegment[ByteString, ByteString, Long] {
+      override def cancelToken: CancelToken = cancel
+      override def ec: ExecutionContext = ecc
+
+      private var count: Long = 0
+
+      override protected def process(input: Option[ByteString]): Future[Boolean] = async {
+        input match {
+          case Some(bytes) => count += bytes.size
+          case None => resultPromise.trySuccess(count)
+        }
+
+        fastAwait(emit(input))
+        input.isEmpty
+      }
+    }
 }

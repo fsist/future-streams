@@ -33,12 +33,19 @@
     <orderEntry type="library" name="SBT: org.slf4j:slf4j-api:1.7.2" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang.modules:scala-async_2.10:0.9.1" level="project" />
     <orderEntry type="library" name="SBT: org.scala-lang:scala-reflect:2.10.4" level="project" />
-    <orderEntry type="library" name="SBT: org.reactivestreams:reactive-streams-spi:0.3" level="project" />
+    <orderEntry type="library" name="SBT: org.reactivestreams:reactive-streams:0.4.0" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe.akka:akka-actor_2.10:2.2.3" level="project" />
     <orderEntry type="library" name="SBT: com.typesafe:config:1.0.2" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: org.scalatest:scalatest_2.10:2.1.5:test" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: ch.qos.logback:logback-classic:1.1.2:test" level="project" />
     <orderEntry type="library" scope="TEST" name="SBT: ch.qos.logback:logback-core:1.1.2:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.reactivestreams:reactive-streams-tck:0.4.0:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.testng:testng:6.8.5:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: junit:junit:4.10:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.hamcrest:hamcrest-core:1.1:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.beanshell:bsh:2.0b4:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: com.beust:jcommander:1.27:test" level="project" />
+    <orderEntry type="library" scope="TEST" name="SBT: org.yaml:snakeyaml:1.6:test" level="project" />
     <orderEntry type="module" module-name="streams" exported="" />
   </component>
 </module>

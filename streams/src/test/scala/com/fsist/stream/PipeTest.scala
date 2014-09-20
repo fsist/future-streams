@@ -3,12 +3,11 @@ package com.fsist.stream
 import java.util.concurrent.ConcurrentLinkedQueue
 
 import com.fsist.FutureTester
-import com.fsist.util.concurrent.CanceledException
 import com.fsist.util.concurrent.{CanceledException, CancelToken}
 import org.scalatest.FunSuite
 
 import scala.collection.JavaConversions._
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent._
 
 class PipeTest extends FunSuite with FutureTester {
   implicit val ec: ExecutionContext = ExecutionContext.global
@@ -95,5 +94,57 @@ class PipeTest extends FunSuite with FutureTester {
     awaitFailure[CanceledException](sink.onSinkDone)
     awaitFailure[CanceledException](pipe.onSourceDone)
     awaitFailure[CanceledException](pipe.onSinkDone)
+  }
+
+  test("flattenTraversable") {
+    val input = for (x <- 1 to 10) yield Seq((1 to 10) : _*)
+
+    val result = (Source.from(input) >> Pipe.flattenTraversable[Int, Seq[Int]]() >>| Sink.collect()).futureValue
+    val expected = input.flatten.toSeq
+    assert(result == expected)
+  }
+
+  test("mergeEither") {
+    val srca = Source.from(1 to 10)
+    val srcb = Source("foo", "bar")
+
+    val pipe = Pipe.mergeEither[String, Int](srcb)
+    val collected = (srca >> pipe >>| Sink.collect()).futureValue
+    val expected = (1 to 10).map(Left.apply) ++ Seq("foo", "bar").map(Right.apply)
+
+    assert(collected.size == expected.size, "Correct number of items collected")
+    assert(collected.toSet == expected.toSet, "Correct items collected")
+  }
+
+  test("inject") {
+    val srca = Source.generate(Some(1)) // Never terminates
+    val srcb = Source("foo", "bar")
+
+    val pipe = Pipe.inject[Int, String](srca)
+    val collected = (srcb >> pipe >>| Sink.collect()).futureValue
+
+    val expected = Set(Right(1), Left("foo"), Left("bar"))
+    assert(collected.toSet == expected, "Correct items collected")
+  }
+
+  test("stopOn") {
+    // Never terminates
+    val source = Source.generateM[Int]{
+      Future {
+        blocking {
+          Thread.sleep(10)
+          Some(1)
+        }
+      }
+    }
+    val sink = Sink.discard[Int]
+    val stop = Promise[Unit]()
+    val pipe = Pipe.stopOn[Int](stop.future)
+
+    val done = source >> pipe >>| sink
+
+    awaitTimeout(done, "Pipeline is running")
+    stop.trySuccess(())
+    done.futureValue // Await completion
   }
 }

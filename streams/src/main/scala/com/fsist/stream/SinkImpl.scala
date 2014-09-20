@@ -6,10 +6,11 @@ import com.fsist.util.BugException
 import com.fsist.util.FastAsync._
 import com.fsist.util.concurrent.{CanceledException, FutureOps, AsyncQueue}
 import FutureOps._
-import org.reactivestreams.spi.{Subscriber, Subscription}
+import org.reactivestreams.{Subscriber, Subscription}
 
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future, Promise}
+import scala.util.Try
 import scala.util.control.NonFatal
 
 /** Base for Future-based mutable state machine implementations of [[Sink]].
@@ -61,12 +62,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     * Note that the val type is Unit. We don't want to preserve the original Future returned by the first invocation of
     * nextStep, we just want the lazy val logic.
     */
-  private[this] lazy val started: Unit =
-  // Start on the EC, not on the thread that accessed the lazy val!
-  // This creates a Futuer[Future[Unit]], but we don't care.
-    Future(nextStep() recover {
-      case NonFatal(e) => failSink(e, true)
-    })(ec)
+  private[this] lazy val started: Unit = nextStep()
 
   /** This central method is called whenever the sink fails irreversibly due to an error in `process` or, theoretically,
     * an error or bug in the code that wraps `process` such as `nextStep`. It exists to let subclasses override it
@@ -77,9 +73,9 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     * @param internal if true, the error occurred in this sink. If false, it came from an upstream Source via `onError`.
     */
   protected def failSink(e: Throwable, internal: Boolean): Unit = {
-    if (! e.isInstanceOf[CanceledException]) {
+    if (!e.isInstanceOf[CanceledException]) {
       if (internal) {
-        logger.error(s"Processing failed: $e")
+        logger.error(s"Processing failed: e")
       }
       else {
         logger.error(s"Failing due to upstream error: $e")
@@ -87,12 +83,12 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     }
 
     if (!resultPromise.tryFailure(e)) {
-      if (! e.isInstanceOf[CanceledException]) {
+      if (!e.isInstanceOf[CanceledException]) {
         logger.error(s"Result promise already completed, error may be ignored: $e")
       }
     }
     if (!sinkDonePromise.tryFailure(e)) {
-      if (! e.isInstanceOf[CanceledException]) {
+      if (!e.isInstanceOf[CanceledException]) {
         logger.error(s"onSinkDone promise already completed, error will be ignored: $e")
       }
     }
@@ -104,12 +100,19 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   /** If overridden to be true, we don't log warnings about a Sink continuing when its Source has completed. */
   protected def mayDiverge: Boolean = false
 
-  private def nextStep(): Future[Unit] = async {
+  /** Perform the next steps in the state machine. Automatically performs the next call to `nextStep`, until the
+    * sink fails or completes.
+    *
+    * NOTE: this deliberately returns Unit, not Future[Unit]. The old implementaion tried to return a Future and map
+    * each returned Future to the one returned by the previous call, which resulted in keeping all the futures (promises)
+    * in memory and going OOM. The async is just to use await internally, but the recursive calls don't use await.
+    *
+    * NOTE: calls should be done through `wrapNextStep`.
+    */
+  private def nextStep(): Unit = async {
     logger.trace(s"Dequeueing input...")
     // TODO make cancelable, eg in case of async call to onError
     val input = fastAwait(buffer.dequeue())
-    //    logger.trace(s"Processing $input")
-
     val isDone = fastAwait(try {
       process(input).toTry
     }
@@ -118,7 +121,6 @@ trait SinkImpl[T, R] extends Sink[T, R] {
         logger.error(s"process($input) failed with $e")
         Future.failed(e)
     })
-    //    logger.trace(s"process($input) produced $isDone")
 
     if (isDone.isFailure) {
       cancelSubscription()
@@ -127,7 +129,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     else if (isDone.get) {
       // EOF
       logger.trace(s"Sink is done")
-      if (! sinkDonePromise.trySuccess(())) {
+      if (!sinkDonePromise.trySuccess(())) {
         // Promise was completed with failure in a race condition with us. Nothing to do here.
       }
 
@@ -140,14 +142,17 @@ trait SinkImpl[T, R] extends Sink[T, R] {
     }
     else if (input.isDefined) {
       logger.trace(s"Requesting more input")
-      subscription.get.requestMore(1)
-      fastAwait(nextStep())
+      subscription.get.request(1)
+      nextStep() // Fire and forget - see method comment
     }
     else {
-      if (! mayDiverge) logger.warn(s"Divergence: the Source has completed, but process() expects more input")
+      if (!mayDiverge) logger.warn(s"Divergence: the Source has completed, but process() expects more input")
       // Allow ourselves to be resubscribed to another source
-      fastAwait(nextStep())
+      nextStep() // Fire and forget - see method comment
     }
+  } recover {
+    case NonFatal(e) =>
+      failSink(e, true)
   }
 
   /** Cancel our linked subscription (if any). */
@@ -159,7 +164,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
   }
 
   def onSubscribe(sub: Subscription): Unit = {
-    if (! subscription.compareAndSet(null, sub)) {
+    if (!subscription.compareAndSet(null, sub)) {
       logger.error(s"Already subscribed to ${subscription.get}, cannot resubscribe to $sub")
       sub.cancel()
     }
@@ -169,7 +174,7 @@ trait SinkImpl[T, R] extends Sink[T, R] {
       // Make sure the state machine is running
       started
 
-      sub.requestMore(1)
+      sub.request(1)
     }
   }
 

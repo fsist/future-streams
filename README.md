@@ -18,7 +18,8 @@ I chose to implement Reactive Streams, to be compatible with other libraries and
 codebase to another library in the future. The design and implementation is guided by Reactive Streams, rather than
 being some other more complex design that can be converted to/from Reactive Streams interfaces when necessary.
  
-The library implements the Reactive Streams API 0.3, and will support 0.4 once that is released. It should interoperate 
+The library implements the Reactive Streams API 0.4, and will support newer versions when they are released. It passes
+most of the 0.4.0 TCK, should soon pass all of it, and should interoperate cleanly 
 with other implementations, although I haven't tested that yet. Once such other implementations are stable, it may
 make sense for me as well for others to switch to another implementation. There's nothing this library does that could
 not *in principle* be done with akka-streams, but that does not mean it *will* be done there.
@@ -257,7 +258,11 @@ whose implementation could probably be optimized.
 ## Current state
 
 Everything described above is implemented. The code is being used in Foresight's products. I consider it to be 
-production quality.
+production quality, but some bugs probably remain (based on past experience).
+
+The library implements the Reactive Streams 0.4.0 API. It passes most but not all of the 0.4.0 TCK. However, there are
+no *known* specific incompatibilities with the specification (which is not to say there are some unknown ones); 
+the reasons for some tests not passing are obscure at present and this is a WIP. 
 
 Some combinator methods are missing which you would expect to be there. This is because the library is originally
 company-internal code, and methods are being added on an as-needed basis. 
@@ -271,8 +276,8 @@ have to cross-compile for that too. (Assistance with the sbt files would be very
 
 ## Future plans
 
-Once the Reactive Streams 0.4 standard and TCK is released, I will support it. I will then also ensure compatibility with
-akka-streams. 
+In the near future, I will make the implementation pass the full Reactive Streams 0.4 TCK. I will update the library 
+to support every new Reactive Streams version released.
 
 I originally planned to add synchronous transformation support. Right now it seems to be unnecessary performance-wise
 (for my own use, not in general) and so it is unlikely I will spend time on it. Of course contributions would be welcome,

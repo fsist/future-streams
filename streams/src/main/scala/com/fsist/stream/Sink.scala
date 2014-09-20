@@ -1,13 +1,18 @@
 package com.fsist.stream
 
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.atomic.{AtomicInteger, AtomicReference}
+
+import com.fsist.stream.SinkImpl.WithoutResult
+import com.fsist.stream.Source.Pusher
 import com.fsist.util.FastAsync._
-import com.fsist.util.concurrent.BoundedAsyncQueue
-import org.reactivestreams.api.Consumer
-import org.reactivestreams.spi.{Subscriber, Subscription}
+import com.fsist.util.concurrent.{AsyncQueue, CancelToken, BoundedAsyncQueue}
+import org.reactivestreams.{Subscription, Subscriber}
 
 import scala.async.Async._
+import scala.collection.concurrent.TrieMap
 import scala.collection.mutable.ListBuffer
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Promise, ExecutionContext, Future}
 import scala.util.control.NonFatal
 
 /** A Sink receives data from a [[com.fsist.stream.Source]] and asynchronously signals it back when it is ready to receive more.
@@ -22,7 +27,7 @@ import scala.util.control.NonFatal
   * This type extends the Reactive Streams contract of `org.reactivestreams.api.Consumer` and
   * `org.reactivestreams.spi.Subscriber`.
   */
-trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
+trait Sink[T, R] extends Subscriber[T] with NamedLogger {
   /** Default EC used by mapping operations */
   implicit def ec: ExecutionContext
 
@@ -47,7 +52,7 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
     * to have a different Sink subscribed. */
   def cancelSubscription(): Unit
 
-    /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
+  /** Creates a new Sink wrapper that asynchronously maps the original sink's result once it is available.
     *
     * NOTE that this does not create a *separate* sink. In other words, the original sink and this sink cannot
     * be subscribed to different sources; any calls to subscribe(), onNext(), etc. on either one of them affect
@@ -70,8 +75,6 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
       override def onComplete(): Unit = orig.onComplete()
 
       override def onNext(element: T): Unit = orig.onNext(element)
-
-      override def getSubscriber: Subscriber[T] = orig.getSubscriber
 
       override def ec: ExecutionContext = orig.ec
 
@@ -104,14 +107,18 @@ trait Sink[T, R] extends Consumer[T] with Subscriber[T] with NamedLogger {
 
       override def onNext(element: T): Unit = orig.onNext(element)
 
-      override def getSubscriber: Subscriber[T] = orig.getSubscriber
-
       override def ec: ExecutionContext = orig.ec
 
       override def cancelSubscription(): Unit = orig.cancelSubscription()
     }
   }
 
+  /** Returns a new `Source.Pusher` that pushes to this sink. */
+  def toPusher(): Pusher[T] = {
+    val p = Source.pusher[T]()
+    p >>| this
+    p
+  }
 }
 
 /** Contains factory methods for creating [[Sink]] instances.
@@ -215,7 +222,7 @@ object Sink {
         buffer += t.get
         falseFuture
       } else {
-        resultPromise.success(buffer.toList)
+        resultPromise.trySuccess(buffer.toList)
         trueFuture
       }
     }
@@ -236,7 +243,7 @@ object Sink {
           state = folder(state, t)
           false
         case None =>
-          resultPromise.success(finalStep(state))
+          resultPromise.trySuccess(finalStep(state))
           true
       }
     }
@@ -258,7 +265,7 @@ object Sink {
           false
         case None =>
           val result = fastAwait(finalStep(state))
-          resultPromise.success(result)
+          resultPromise.trySuccess(result)
           true
       }
     }
@@ -279,25 +286,46 @@ object Sink {
 
     override def onNext(element: T): Unit = ()
 
-    override def getSubscriber: Subscriber[T] = this
-
     override def ec: ExecutionContext = ecc
 
     override def cancelSubscription(): Unit = ()
   } named "Sink.done"
 
-  /** Convert a Future[Sink] to an actual Sink. The returned Sink will not request more than one element before the
-    * `future` completes. */
-  def flatten[T, R](future: Future[Sink[T, R]])(implicit ecc: ExecutionContext): Sink[T, R] = {
-    val forwarder = PipeSegment.Passthrough[T] named "Sink.flatten internal pipe"
-    future onSuccess {
-      case sink => forwarder >>| sink
-    }
-    future onFailure {
-      case e => forwarder.onError(e)
-    }
-    forwarder flatMapResult (_ => future flatMap (_.result))
-  } named "Sink.flatten"
+  /** Convert a Future[Sink] to an actual Sink. */
+  def flatten[T, R](future: Future[Sink[T, R]])(implicit ecc: ExecutionContext): Sink[T, R] =
+    new SinkImpl[T, R] {
+      override def ec: ExecutionContext = ecc
+
+      private val pusherFuture = async {
+        val nextSink = fastAwait(future)
+        val pusher = Source.pusher[T]()
+        (pusher >>| nextSink) recover {
+          case NonFatal(e) =>
+            failSink(e, true)
+        }
+        pusher
+      }
+
+      override protected def failSink(e: Throwable, internal: Boolean): Unit = async {
+        super.failSink(e, internal)
+        val nextSink = fastAwait(future)
+        nextSink.onError(e)
+      }
+
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        val pusher = fastAwait(pusherFuture)
+        fastAwait(pusher.push(input))
+
+        // Make sure this Sink doesn't complete before the target Sink does, so users can await
+        // (source >>| Sink.flatten(future)) safely
+        if (input.isEmpty) {
+          val nextSink = fastAwait(future)
+          resultPromise.trySuccess(fastAwait(nextSink.resultOnDone))
+        }
+
+        input.isEmpty
+      }
+    } named "Sink.flatten"
 
   /** A sink that exposes elements for external code to pull asynchronously. Return type of `Sink.puller`. */
   trait Puller[T] extends Sink[T, Unit] {
@@ -329,4 +357,121 @@ object Sink {
 
       override def pull(): Future[Option[T]] = queue.dequeue()
     } named "Sink.puller"
+
+  /** Sends each input element to some one of the `sinks` given. The stream is parallelized upto the number of `sinks`.
+    *
+    * The order in which elements are distributed to sinks is undefined, except that as long as at least one sink
+    * is able to accept an element, the returned scatterer sink will forward it and not wait for a different sink.
+    *
+    * When an EOF or an upstream error is received, it is forwarded to all sinks.
+    *
+    * The returned sink doesn't complete until all of the original sinks have completed.
+    */
+  def scatter[T](sinks: IndexedSeq[Sink[T, _]])(implicit ecc: ExecutionContext): Sink[T, Unit] =
+    new WithoutResult[T] {
+      override def ec: ExecutionContext = ecc
+
+      private val queue = new AsyncQueue[Pusher[T]]()
+
+      for (sink <- sinks) {
+        val pusher = Source.pusher[T]() named s"pusher to ${sink.name}"
+
+        // Fire and forget
+        (pusher >>| sink) recover {
+          case NonFatal(e) => failSink(e, true)
+        }
+
+        queue.enqueue(pusher)
+      }
+
+      override protected def process(input: Option[T]): Future[Boolean] = async {
+        input match {
+          case some: Some[_] =>
+            val pusher = fastAwait(queue.dequeue())
+            logger.trace(s"Scattering to ${pusher.name}")
+            pusher.push(some) map (_ => queue.enqueue(pusher)) recover {
+              case NonFatal(e) => failSink(e, true)
+            }
+            false
+          case None =>
+            logger.trace(s"Scattering EOF")
+
+            var count = sinks.size
+            while (count > 0) {
+              val pusher = fastAwait(queue.dequeue())
+              logger.trace(s"Scattering EOF to ${pusher.name}")
+              fastAwait(pusher.push(None))
+              count -= 1
+            }
+
+            logger.trace(s"Scattered EOF to all pushers, waiting for sinks to terminate")
+
+            // Wait for all the original sinks to complete
+            fastAwait(Future.sequence(sinks map (_.onSinkDone)))
+
+            logger.trace(s"All sinks completed")
+
+            true
+        }
+      }
+
+      override def onError(cause: Throwable): Unit = {
+        super.onError(cause)
+        for (sink <- sinks) {
+          try {
+            sink.onError(cause)
+          }
+          catch {
+            case NonFatal(e) =>
+              logger.error(s"Error in downstream sink's `onError`: $e")
+          }
+        }
+      }
+    } named "Sink.scatter"
+
+  /** Returns a sink that distributes its input to all of these sinks.
+    *
+    * The returned sink does not complete until all of the component sinks have completed. */
+  def duplicate[T](sinks: Traversable[Sink[T, _]])(implicit ec: ExecutionContext): Sink[T, Unit] = {
+    val pushers = sinks map { sink =>
+        val pusher = Source.pusher[T]()
+        pusher >>| sink
+        pusher
+    }
+
+    Sink.foreachInputM[T] {
+      case some @ Some(t) =>
+        Future.sequence(pushers.map(_.push(some))) map (_ => ())
+      case None => async {
+        fastAwait(Future.sequence(pushers.map(_.push(None))) map (_ => ()))
+        // And explicitly wait for the underlying sinks to complete
+        fastAwait(Future.sequence(sinks map (_.onSinkDone)))
+      }
+
+    }.named("Sink.duplicate")
+  }
+
+  /** A sink that never requests any data and never completes, unless failed by its source. */
+  def block[T]()(implicit ecc: ExecutionContext) : Sink[T, Unit] = new Sink[T, Unit] {
+    private val donePromise = Promise[Unit]()
+    private val sub = new AtomicReference[Option[Subscription]](None)
+
+    override def ec: ExecutionContext = ecc
+    override def result: Future[Unit] = success
+
+    override def onSinkDone: Future[Unit] = donePromise.future
+
+    override def cancelSubscription(): Unit = {
+      sub.getAndSet(None) match {
+        case Some(sub) =>
+          sub.cancel()
+        case None =>
+      }
+    }
+
+    override def onError(cause: Throwable): Unit = donePromise.tryFailure(cause)
+    override def onSubscribe(subscription: Subscription): Unit = sub.set(Some(subscription))
+    override def onComplete(): Unit = ()
+    override def onNext(element: T): Unit = ()
+  }
 }
