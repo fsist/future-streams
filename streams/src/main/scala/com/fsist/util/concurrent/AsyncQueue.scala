@@ -83,46 +83,6 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
       else Some(t)
   }
 
-  /** Returns a Source[T] that will dequeue items. If other threads also call dequeue() while the Source is
-    * running, some items will go to them and will not appear in the Source's output.
-    *
-    * @param stopOn if this function returns true for any item, the source will stop (call onComplete) after that item.
-    *               This does not affect the queue itself, nor other Sources returned later from the same queue
-    *               by this method.
-    */
-  def source(stopOn: T => Boolean = _ => false, clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext): Source[T] = {
-    var done: Boolean = false
-
-    Source.generateM[T] {
-      if (done) {
-        logger.trace(s"$clue: producing EOF")
-        stream.noneFuture
-      }
-      else {
-        async {
-          val t = fastAwait(dequeue())
-          if (stopOn(t)) {
-            logger.trace(s"$clue: identified next part, will produce EOF next time")
-            done = true
-          }
-          Some(t)
-        }
-      }
-    } named clue
-  }
-
-  /** If `T` is a subtype of `Option[R]` for some type `R`, this produces a source that behaves according to the
-    * future-streams convention: the stream produces the R values until it sees a None input, when it emits EOF.
-    *
-    * Like the method `source`, if other threads also call dequeue() while the Source is
-    * running, some items will go to them and will not appear in the Source's output.
-    */
-  def optionSource[R](clue: String = "AsyncQueue.source")(implicit ec: ExecutionContext, ev: T <:< Option[R]): Source[R] = {
-    logger.trace(s"optionSource")
-    // Why can't I make this work with static typing, given the `ev` evidence?
-    Source.generateM[R](dequeue.asInstanceOf[Future[Option[R]]]) named clue
-  }
-
   /** Returns all entries currently enqueued without dequeueing them. */
   def getEnqueued(): Queue[T] = {
     get() match {
@@ -191,24 +151,5 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) ex
     if (dequeued.nonEmpty) Future.successful(dequeued)
     else dequeue() map (IndexedSeq.apply(_))
   }
-
-  /** Returns a Source[T] that will dequeue items. If other threads also call dequeue() while the Source is
-    * running, some items will go to them and will not appear in the Source's output.
-    *
-    * @param stopOn if this function returns true for any item, the source will stop (call onComplete) after that item.
-    *               This does not affect the queue itself, nor other Sources returned later from the same queue
-    *               by this method.
-    */
-  def source(stopOn: T => Boolean = _ => false, clue: String = "BoundedAsyncQueue.source")(implicit ec: ExecutionContext): Source[T] =
-    queue.source(stopOn, clue)(ec)
-
-  /** If `T` is a subtype of `Option[R]` for some type `R`, this produces a source that behaves according to the
-    * future-streams convention: the stream produces the R values until it sees a None input, when it emits EOF.
-    *
-    * Like the method `source`, if other threads also call dequeue() while the Source is
-    * running, some items will go to them and will not appear in the Source's output.
-    */
-  def optionSource[R](clue: String = "BoundedAsyncQueue.source")(implicit ec: ExecutionContext, ev: T <:< Option[R]): Source[R] =
-    queue.optionSource(clue)
 }
 

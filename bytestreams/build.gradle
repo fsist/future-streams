@@ -1,0 +1,7 @@
+dependencies {
+  dependOnProject(project, 'macros')
+  dependOnProject(project, 'streams')
+  
+  // For ByteString
+  compile 'com.typesafe.akka:akka-actor_2.10:2.3.6'
+}
