@@ -15,7 +15,8 @@ object FastAsync {
 
   def fastAwaitImpl[T: c.WeakTypeTag](c: Context)(fut: c.Expr[Future[T]]): c.Expr[T] = {
     import c.universe._
-    val tree =  q"{ val f = $fut; if (f.isCompleted) f.value.get.get else await(f) }"
+    val tree = q"{ val f = $fut; if (f.isCompleted) f.value.get.get else await(f) }"
     c.Expr[T](tree)
   }
+
 }

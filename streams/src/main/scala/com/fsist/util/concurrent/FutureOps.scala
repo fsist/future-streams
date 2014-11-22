@@ -36,4 +36,12 @@ object FutureOps extends Logging {
   implicit def apply[T](fut: Future[T]): FutureOps[T] = {
     new FutureOps(fut)
   }
+
+  /** Converts synchronously thrown exceptions into failed Futures. */
+  def exceptionToFailure[T](fut: => Future[T]): Future[T] = try {
+    fut
+  }
+  catch {
+    case NonFatal(e) => Future.failed(e)
+  }
 }
