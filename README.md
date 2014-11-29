@@ -1,9 +1,20 @@
+TODOs:
+
+- Implement Connector
+- Document!
+- Write out exception semantics and make sure they are followed. Also, DownstreamFailedException seems superfluous?
+- Write test
+- More combinators
+- ReactiveStreams converters
+- ReactiveStreams TCK
+- .onError, .onComplete combinators
+- AsyncBuffer
+- Connecting builders
+
+
 # future-streams
 
 A `scala.concurrent.Future`-based implementation of [Reactive Streams](http://www.reactive-streams.org).
-
-This library is being graciously released as open source by my employer, 
-[Foresight Information Technologies](http://www.foresight-air.com/).
 
 ## Purpose and design constraints
 

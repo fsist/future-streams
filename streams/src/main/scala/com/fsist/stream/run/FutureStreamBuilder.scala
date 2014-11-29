@@ -3,12 +3,11 @@ package com.fsist.stream.run
 import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream._
-import com.fsist.stream.run.StateMachine.{ConnectorMachine, TransformMachine, OutputMachine, InputMachine}
-import com.fsist.util.{AsyncFunc, SyncFunc, Func}
+import com.fsist.stream.run.StateMachine.{MergerMachine, TransformMachine, OutputMachine, InputMachine}
+import com.fsist.util.SyncFunc
 
 import scala.annotation.tailrec
-import scala.concurrent.{Promise, ExecutionContext}
-import scala.util.control.NonFatal
+import scala.concurrent.ExecutionContext
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
 
@@ -80,9 +79,10 @@ class FutureStreamBuilder {
     val allConnectors: Set[Connector[_, _]] =
       model.nodes.filter(_.isInstanceOf[ConnectorEdge[_, _]]).map(_.asInstanceOf[ConnectorEdge[_, _]].connector).toSet
 
-    val connectorMachines: Map[Connector[_, _], ConnectorMachine[_, _]] =
+    val connectorMachines: Map[Connector[_, _], ConnectorMachine[_]] =
       allConnectors.map({
-        case connector: Connector[_, _] => (connector, new ConnectorMachine(connector))
+        case merger: Merger[_] => (merger, new MergerMachine(merger))
+        case splitter: Splitter[_] => ???
       }).toMap
 
     val componentMachines: Map[StreamComponent, StateMachine] =
@@ -94,12 +94,17 @@ class FutureStreamBuilder {
         }
       }).toMap
 
+    val sinkMachines: Map[StreamComponent, StateMachineWithInput[_]] =
+      componentMachines.filter {
+        case (component, machine) => machine.isInstanceOf[StateMachineWithInput[_]]
+      }.mapValues(_.asInstanceOf[StateMachineWithInput[_]])
+
     // Fill in the state machines' .next fields
 
     for (DiEdge(from: Source[_], to: Sink[_]) <- model.edges.toOuter) {
       componentMachines(from) match {
         case machine: StateMachineWithOneOutput[_] =>
-          machine.next = Some(componentMachines(to))
+          machine.next = Some(sinkMachines(to).asInstanceOf[StateMachineWithInput[machine.TOut]])
         case other => ???
       }
     }

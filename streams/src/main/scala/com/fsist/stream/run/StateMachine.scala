@@ -2,6 +2,7 @@ package com.fsist.stream.run
 
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine.{TransformMachine, OutputMachine}
+import com.fsist.util.concurrent.BoundedAsyncQueue
 import com.fsist.util.{BugException, Func, AsyncFunc, SyncFunc}
 import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging
@@ -14,35 +15,45 @@ import scala.util.control.NonFatal
 // TODO make sure error handling is consistent in all StateMachine types, and write out its semantics
 
 /** Note: implementations are mutable! */
+
 private[run] sealed trait StateMachine {
   implicit def ec: ExecutionContext
 
   def running: RunningStreamComponent
 }
 
-private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
-  var next: Option[StateMachine] = None // Set to Some after construction
+/** All machines that need to have independent loops started. This includes all inputs, but also e.g. always-async machines
+  * which read from an input AsyncQueue. */
+private[run] sealed trait RunnableMachine extends StateMachine {
+  def run(): Unit
+}
 
-  def nextConsumer: SafeConsumer[Out, _] = next.get match {
-    case output: OutputMachine[Out, _] => output.consumer
-    case transform: TransformMachine[Out, _] => transform.consumer
-    case other => ???
-  }
+private[run] sealed trait StateMachineWithInput[In] extends StateMachine {
+  def consumer: SafeConsumer[In, _]
+}
+
+private[run] sealed trait ConnectorMachine[T] extends StateMachineWithInput[T] {
+  def running: RunningConnector[T, T]
+}
+
+private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
+  type TOut = Out // Defined to solve some type issues, see https://groups.google.com/forum/#!topic/scala-user/aN-o7ZaNwPo
+  var next: Option[StateMachineWithInput[TOut]] = None // Set to Some after construction
 }
 
 private[run] object StateMachine extends Logging {
 
   class InputMachine[Out](val input: StreamInput[Out])
-                         (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] {
+                         (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
     val completionPromise = Promise[Unit]()
     val running: RunningStreamInput[Out] = RunningStreamInput(completionPromise.future, input)
 
-    def run(): Unit = {
+    override def run(): Unit = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of user functions
       val producer = input.producer
-      val consumer = nextConsumer
+      val consumer = next.get.consumer
       val onNext = consumer.onNext
       val onComplete = consumer.onComplete
       val onError = consumer.onError
@@ -82,7 +93,7 @@ private[run] object StateMachine extends Logging {
   }
 
   class OutputMachine[In, Res](val output: StreamOutput[In, Res])
-                              (implicit val ec: ExecutionContext) extends StateMachine {
+                              (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()
     val running: RunningStreamOutput[In, Res] = RunningStreamOutput(resultPromise.future)
 
@@ -113,15 +124,15 @@ private[run] object StateMachine extends Logging {
   }
 
   class TransformMachine[In, Out](val transform: Transform[In, Out])
-                                 (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] {
+                                 (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
     val completionPromise = Promise[Unit]()
     val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
 
-    lazy val consumer: SafeConsumer[In, _] = {
+    lazy val consumer: SafeConsumer[In, Unit] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of user functions
-      val consumer = nextConsumer
+      val consumer = next.get.consumer
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
       val consumerOnError = consumer.onError
@@ -129,7 +140,7 @@ private[run] object StateMachine extends Logging {
       transform match {
         case SingleTransform(_, trOnNext, trOnComplete, trOnError) =>
           val onError = Func.tee(trOnError.suppressErrors(), consumerOnError.suppressErrors())
-          val onComplete = trOnComplete.compose(consumerOnComplete).someRecover(onError)
+          val onComplete = trOnComplete.compose(consumerOnComplete).compose(SyncFunc[Any, Unit](_ => ())).someRecover(onError)
           val onNext = trOnNext.compose(consumerOnNext).someRecover(Func.tee(onError, SyncFunc(t => throw new DownstreamHandledException(Some(t)))))
 
           SafeConsumer(onNext, onComplete, onError)
@@ -174,17 +185,51 @@ private[run] object StateMachine extends Logging {
                 while (iter.hasNext) consumerOnNext.fastAwait(iter.next)
                 consumerOnComplete.fastAwait(())
               })
-            }).someRecover(onError)
+            })
+              .compose(SyncFunc[Any, Unit](_ => ())).someRecover(onError)
 
           SafeConsumer(onNext, onComplete, onError)
       }
     }
   }
 
-  class ConnectorMachine[In, Out](val connector: Connector[In, Out])
-                                 (implicit val ec: ExecutionContext) extends StateMachine {
+  class MergerMachine[T](val merger: Merger[T])
+                        (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] with RunnableMachine {
+    import MergerMachine._
+
     val completionPromise = Promise[Unit]()
-    val running: RunningConnector[In, Out] = RunningConnector(completionPromise.future, connector)
+    val running: RunningConnector[T, T] = RunningConnector(completionPromise.future, merger)
+
+    private val queue = new BoundedAsyncQueue[Either[T, Throwable]](1)
+
+    // The same consumer is used for all inputs, and is concurrent-safe.
+    lazy val consumer: SafeConsumer[T, Unit] = {
+      require(next.isDefined, "Graph must be fully linked before running")
+
+      // Assume queue.enqueue can't fail and skip the recovery stuff
+      val onNext = AsyncFunc[T, Unit](t => queue.enqueue(Left(t)))
+      val onComplete = AsyncFunc[Unit, Unit](_ => queue.enqueue(Right(EOF)))
+      val onError = AsyncFunc[Throwable, Unit](th => queue.enqueue(Right(th)))
+
+      SafeConsumer(onNext, onComplete, onError)
+    }
+
+    override def run(): Unit = {
+      // Acquire copies of user functions
+      val consumer = next.get.consumer
+      val consumerOnNext = consumer.onNext
+      val consumerOnComplete = consumer.onComplete
+      val consumerOnError = consumer.onError
+
+      // Avoid async issue #93, don't use async/await when consumer might be synchronous
+      def loop: Future[Unit] = exceptionToFailure(queue.dequeue() map (_ match {
+        case Left(t) => ???
+      }))
+    }
+  }
+
+  object MergerMachine {
+    private case object EOF extends Exception
   }
 
 }
