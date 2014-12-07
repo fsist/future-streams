@@ -1,7 +1,5 @@
 package com.fsist.util
 
-import com.fsist.util.FastAsync._
-
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
@@ -12,6 +10,12 @@ sealed trait Func[-A, +B] extends FuncBase[A, B] {
   /** Returns true iff this is a [[SyncFunc]] */
   def isSync: Boolean
 
+  /** Returns true iff this is a function built by `Func.pass` */
+  def isPass: Boolean = false
+
+  /** Returns true iff this function is either `Func.nop` or `Func.nopAsync`. */
+  def isNop: Boolean = false
+
   /** Shortcut for a cast to SyncFunc. Fails at runtime with ClassCastException. */
   def asSync: SyncFunc[A, B] = this.asInstanceOf[SyncFunc[A, B]]
 
@@ -21,11 +25,17 @@ sealed trait Func[-A, +B] extends FuncBase[A, B] {
   /** Creates a new function composing these two, which is synchronous iff both inputs were synchronous. */
   def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C]
 
+  /** Alias for `compose`. Creates a new function composing these two, which is synchronous iff both inputs were synchronous. */
+  def ~>[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = compose(next)(ec)
+
   /** Adds a synchronous recovery stage to this function. If `this` is a SyncFunc, the result will also be synchronous. */
   def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U]
 
-  /** Adds an asnychronous recovery stage to this function. */
-  def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[A, U]
+  /** Adds an asnychronous recovery stage to this function.
+    *
+    * This isn't declared to return an AsyncFunc because it can discard the `handler` and return a SyncFunc if the
+    * original function is e.g. `nop` or `pass`. */
+  def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): Func[A, U]
 
   /** Adds a recovery stage to this function. If `this` and `handler` are both synchronous, then the result will also
     * be synchronous.
@@ -47,6 +57,15 @@ sealed trait Func[-A, +B] extends FuncBase[A, B] {
 
   /** Returns either B or a Future[B] depending on the type of this Func. */
   def someApply(a: A)(implicit ec: ExecutionContext): Any
+
+  /** Returns a new function that passes any exceptions in the original function to `handler`.
+    * The new function still fails with the original exception after the `handler` has run.
+    */
+  def composeFailure(handler: Throwable => Unit)(implicit ec: ExecutionContext): Func[A, B] = recover {
+    case NonFatal(e) =>
+      handler(e)
+      throw e
+  }
 }
 
 object Func {
@@ -54,19 +73,57 @@ object Func {
 
   private[util] val futureSuccess = Future.successful(())
 
+  def pass[T]: SyncFunc[T, T] = new SyncFunc[T, T] {
+    override def isPass: Boolean = true
+
+    override def apply(a: T): T = a
+
+    override def compose[C](next: Func[T, C])(implicit ec: ExecutionContext): Func[T, C] = next
+
+    override def recover[U >: T](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[T, U] = this
+
+    override def recoverWith[U >: T](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): SyncFunc[T, U] = this
+
+    override def suppressErrors()(implicit ec: ExecutionContext): SyncFunc[T, Unit] = nop
+  }
+
   val nop: SyncFunc[Any, Unit] = new SyncFunc[Any, Unit] {
+    override def isNop: Boolean = true
+
     override def apply(a: Any): Unit = ()
+
+    // Not overriding `compose`; we would have to create a new func instance anyway, and there would be no benefit
+
+    override def recover[U >: Unit](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[Any, U] = this
+
+    override def recoverWith[U >: Unit](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[Any, U] = nopAsync
+
+    override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
   }
 
   val nopAsync: AsyncFunc[Any, Unit] = new AsyncFunc[Any, Unit] {
+    override def isNop: Boolean = true
+
     override def apply(a: Any)(implicit ec: ExecutionContext): Future[Unit] = futureSuccess
+
+    // Can't override compose without defining a new function instance anyway, which saves us nothing
+
+    override def recover[U >: Unit](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[Any, U] = this
+
+    override def recoverWith[U >: Unit](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[Any, U] = this
+
+    override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
   }
 
   /** Returns a function that will call all of the `funcs` with the same input, in order, unless one of them fails.
     * The returned function will be synchronous if all of the input functions are synchronous.
     */
   def tee[A](funcs: Func[A, _]*)(implicit ec: ExecutionContext): Func[A, Unit] = {
-    if (funcs.forall(_.isSync)) {
+    val realFuncs = funcs.filter(f => !f.isNop && !f.isPass)
+    if (realFuncs.isEmpty) {
+      nop
+    }
+    else if (funcs.forall(_.isSync)) {
       val syncFuncs = funcs.map(_.asSync)
       SyncFunc[A, Unit]((a: A) => for (func <- syncFuncs) func.apply(a))
     }
@@ -81,36 +138,39 @@ object Func {
 }
 
 trait SyncFunc[-A, +B] extends Func[A, B] {
-  def isSync: Boolean = true
+  override def isSync: Boolean = true
 
   def apply(a: A): B
 
   override def someApply(a: A)(implicit ec: ExecutionContext): B = apply(a)
 
-  def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = {
+  override def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = {
     val self = this
     next match {
+      case func if func.isPass => this.asInstanceOf[Func[A, C]] // B =:= C
+      case ComposedAsyncFunc(before, middle, after) => ComposedAsyncFunc(self ~> before, middle, after)
       case syncf2: SyncFunc[B, C] => new SyncFunc[A, C] {
         override def apply(a: A): C = syncf2(self(a))
       }
-      case asyncf: AsyncFunc[B, C] => new AsyncFunc[A, C] {
-        override def apply(a: A)(implicit ec: ExecutionContext): Future[C] = asyncf(self(a))
+      case asyncf: AsyncFunc[B, C] => ComposedAsyncFunc[A, C, B, C](self, asyncf, Func.pass)
+    }
+  }
+
+  /** This overload acts like `Func.compose`, but because it composes two SyncFuncs, it doesn't need an ExecutionContext. */
+  def compose[C](next: SyncFunc[B, C]): SyncFunc[A, C] = {
+    if (next.isPass) this.asInstanceOf[SyncFunc[A, C]] // B =:= C
+    else {
+      val self = this
+      new SyncFunc[A, C] {
+        override def apply(a: A): C = next(self(a))
       }
     }
   }
 
-  /** Like `Func.compose`, but because it composes two SyncFuncs, it doesn't need an ExecutionContext. */
-  def compose[C](next: SyncFunc[B, C]): SyncFunc[A, C] = {
-    val self = this
-    new SyncFunc[A, C] {
-      override def apply(a: A): C = next(self(a))
-    }
-  }
+  /** Alias for `compose`. This overload acts like `Func.compose`, but because it composes two SyncFuncs, it doesn't need an ExecutionContext. */
+  def ~>[C](next: SyncFunc[B, C]): SyncFunc[A, C] = compose(next)
 
-  def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): SyncFunc[A, U] = recoverNoEc(handler)
-
-  // Overload that doesn't require ExecutionContext
-  def recoverNoEc[U >: B](handler: PartialFunction[Throwable, U]): SyncFunc[A, U] = SyncFunc[A, U] { a =>
+  override def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U] = SyncFunc[A, U] { a =>
     try {
       apply(a)
     }
@@ -119,7 +179,7 @@ trait SyncFunc[-A, +B] extends Func[A, B] {
     }
   }
 
-  def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[A, U] = AsyncFunc[A, U] { a =>
+  override def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): Func[A, U] = AsyncFunc[A, U] { a =>
     try {
       Future.successful(apply(a))
     }
@@ -128,7 +188,7 @@ trait SyncFunc[-A, +B] extends Func[A, B] {
     }
   }
 
-  def suppressErrors()(implicit ec: ExecutionContext): SyncFunc[A, Unit] = SyncFunc[A, Unit] { a =>
+  override def suppressErrors()(implicit ec: ExecutionContext): Func[A, Unit] = Func[A, Unit] { a =>
     try {
       apply(a)
     }
@@ -145,20 +205,19 @@ object SyncFunc {
 }
 
 trait AsyncFunc[-A, +B] extends Func[A, B] {
-  def isSync: Boolean = false
+  override def isSync: Boolean = false
 
   def apply(a: A)(implicit ec: ExecutionContext): Future[B]
 
   override def someApply(a: A)(implicit ec: ExecutionContext): Future[B] = apply(a)(ec)
 
-  def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = {
+  override def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = {
     val self = this
     next match {
-      case syncf: SyncFunc[B, C] => new AsyncFunc[A, C] {
-        override def apply(a: A)(implicit ec: ExecutionContext): Future[C] = async {
-          syncf(FastAsync.fastAwait(self(a)))
-        }
-      }
+      case func if func.isPass => this.asInstanceOf[Func[A, C]] // B =:= C
+
+      case syncf: SyncFunc[B, C] => ComposedAsyncFunc(Func.pass, self, syncf)
+
       case asyncf2: AsyncFunc[B, C] => new AsyncFunc[A, C] {
         override def apply(a: A)(implicit ec: ExecutionContext): Future[C] = async {
           FastAsync.fastAwait(asyncf2(FastAsync.fastAwait(self(a))))
@@ -193,7 +252,7 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
     }
   }
 
-  def suppressErrors()(implicit ec: ExecutionContext): AsyncFunc[A, Unit] = AsyncFunc[A, Unit] { a =>
+  def suppressErrors()(implicit ec: ExecutionContext): Func[A, Unit] = AsyncFunc[A, Unit] { a =>
     try {
       apply(a) map (_ => ()) recover {
         case NonFatal(e) =>
@@ -214,4 +273,44 @@ object AsyncFunc {
       case NonFatal(e) => Future.failed(e)
     }
   }
+}
+
+/** An async func sandwiched between two sync ones. Enables efficient composing of sync funcs around async ones. */
+case class ComposedAsyncFunc[-A, +B, InnerA, InnerB](before: SyncFunc[A, InnerA],
+                                                     middle: AsyncFunc[InnerA, InnerB],
+                                                     after: SyncFunc[InnerB, B]) extends AsyncFunc[A, B] {
+  override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = {
+    middle(before(a)) map (after.apply)
+  }
+
+  override def compose[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = {
+    val self = this
+    next match {
+      case func if func.isPass => this.asInstanceOf[Func[A, C]] // B =:= C
+
+      case ComposedAsyncFunc(nextBefore: Func[B, _], nextMiddle, nextAfter) =>
+        val composedSyncPart = self.after ~> nextBefore
+
+        ComposedAsyncFunc(
+          self.before,
+          AsyncFunc.apply((x: InnerA) => async {
+            FastAsync.fastAwait(nextMiddle(composedSyncPart(FastAsync.fastAwait(self.middle(x)))))
+          }),
+          nextAfter
+        )
+
+      case syncf: SyncFunc[B, C] => ComposedAsyncFunc[A, C, InnerA, InnerB](before, middle, after ~> syncf)
+
+      case asyncf: AsyncFunc[B, C] => ComposedAsyncFunc(
+        self.before,
+        AsyncFunc.apply((x: InnerA) => async {
+          val one = self.after(FastAsync.fastAwait(self.middle(x)))
+          val three = FastAsync.fastAwait(asyncf(one))
+          three
+        }),
+        Func.pass[C]
+      )
+    }
+  }
+
 }
