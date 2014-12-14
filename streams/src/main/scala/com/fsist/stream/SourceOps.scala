@@ -1,9 +1,13 @@
 package com.fsist.stream
 
+import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.{Func, AsyncFunc}
 
+import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.BitSet
 import scala.concurrent.{ExecutionContext, Future}
+
+import scala.language.higherKinds
 
 /** Adds various shortcuts to StreamOutput. Doesn't implement anything new, just provides convenience wrappers
   * for constructors of Source, Transform, Sink and Connect.
@@ -49,7 +53,17 @@ trait SourceOps[+Out] {
     to(output)
   }
 
-  // Shortcuts for Connector constructors
+  def foldLeft[In, Res, State](init: State)(onNext: Func[(In, State), State], onComplete: Func[State, Res],
+                                            onError: Func[Throwable, Unit] = Func.nop)
+                              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] =
+    Sink.foldLeft(init)(onNext, onComplete, onError)(builder, ec)
+
+  def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
+                       (implicit cbf: CanBuildFrom[M[_], In, M[In]],
+                        builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] =
+    Sink.collect(onError)(cbf, builder)
+
+    // Shortcuts for Connector constructors
 
   def split(outputCount: Int, outputChooser: Func[Out, BitSet]): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, outputChooser)

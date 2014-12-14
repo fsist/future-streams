@@ -71,6 +71,9 @@ sealed trait Func[-A, +B] extends FuncBase[A, B] {
 object Func {
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = SyncFunc(f)
 
+
+  implicit def apply[B](f: => B): SyncFunc[Unit, B] = SyncFunc(f)
+
   private[util] val futureSuccess = Future.successful(())
 
   def pass[T]: SyncFunc[T, T] = new SyncFunc[T, T] {
@@ -202,6 +205,10 @@ object SyncFunc {
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = new SyncFunc[A, B] {
     override def apply(a: A): B = f(a)
   }
+
+  implicit def apply[B](f: => B): SyncFunc[Unit, B] = new SyncFunc[Unit, B] {
+    override def apply(a: Unit): B = f
+  }
 }
 
 trait AsyncFunc[-A, +B] extends Func[A, B] {
@@ -314,3 +321,4 @@ case class ComposedAsyncFunc[-A, +B, InnerA, InnerB](before: SyncFunc[A, InnerA]
   }
 
 }
+

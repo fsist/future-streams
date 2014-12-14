@@ -1,9 +1,12 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.{RunningStreamOutput, FutureStream, FutureStreamBuilder}
-import com.fsist.util.Func
+import com.fsist.util.{SyncFunc, Func}
 
+import scala.collection.generic.CanBuildFrom
 import scala.concurrent.ExecutionContext
+
+import scala.language.higherKinds
 
 sealed trait Sink[-In] extends StreamComponent {
 }
@@ -38,4 +41,35 @@ object Sink {
   def foreach[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
     SimpleOutput(builder, StreamConsumer(onNext, onComplete, onError))
+
+  def foldLeft[In, Res, State](init: State)(onNext: Func[(In, State), State], onComplete: Func[State, Res],
+                                            onError: Func[Throwable, Unit] = Func.nop)
+                              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
+    val (userOnNext, userOnComplete, userOnError) = (onNext, onComplete, onError)
+
+    SimpleOutput(builder, new StreamConsumer[In, Res] {
+      private var state: State = init
+
+      override def onNext: Func[In, Unit] = SyncFunc((in: In) => (in, state)) ~> userOnNext ~> SyncFunc((st: State) => state = st)
+
+      override def onError: Func[Throwable, Unit] = userOnError
+
+      override def onComplete: Func[Unit, Res] = SyncFunc(state) ~> userOnComplete
+    })
+  }
+
+  def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
+                       (implicit cbf: CanBuildFrom[M[_], In, M[In]],
+                        builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] = {
+    val m = cbf.apply()
+    val userOnError = onError
+
+    SimpleOutput(builder, new StreamConsumer[In, M[In]] {
+      override def onNext: Func[In, Unit] = SyncFunc(m += _)
+
+      override def onError: Func[Throwable, Unit] = userOnError
+
+      override def onComplete: Func[Unit, M[In]] = m.result()
+    })
+  }
 }

@@ -6,7 +6,10 @@ import scala.async.Async._
 import com.fsist.util.FastAsync._
 import scala.concurrent.ExecutionContext
 
-sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In]
+sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
+  def builder: FutureStreamBuilder
+  def onError: Func[Throwable, Unit]
+}
 
 final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Out],
                                             onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out]

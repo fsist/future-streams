@@ -5,9 +5,11 @@ import java.util.concurrent.atomic.AtomicReference
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine.{MergerMachine, TransformMachine, OutputMachine, InputMachine}
 import com.fsist.util.SyncFunc
+import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec
-import scala.concurrent.ExecutionContext
+import scala.collection.immutable.VectorBuilder
+import scala.concurrent.{Future, Promise, ExecutionContext}
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
 
@@ -76,23 +78,41 @@ class FutureStreamBuilder {
 
     // Create the StateMachine instances
 
+    val allStateMachines = Vector.newBuilder[StateMachine]
+    val graphOps = new GraphOps with Logging {
+      private lazy val stateMachines = allStateMachines.result()
+      private val failure = Promise[Throwable]()
+      override def failGraph(th: Throwable): Unit = {
+        if (failure.trySuccess(th))
+          stateMachines foreach (_.fail(th))
+        else {
+          val existing = failure.future.value.get.get
+          if (th ne existing) {
+            logger.trace(s"Discarding additional error $th, already failed with $existing")
+          }
+        }
+      }
+    }
+
     val allConnectors: Set[Connector[_, _]] =
       model.nodes.filter(_.isInstanceOf[ConnectorEdge[_, _]]).map(_.asInstanceOf[ConnectorEdge[_, _]].connector).toSet
 
     val connectorMachines: Map[Connector[_, _], ConnectorMachine[_]] =
       allConnectors.map({
-        case merger: Merger[_] => (merger, new MergerMachine(merger))
+        case merger: Merger[_] => (merger, new MergerMachine(merger, graphOps))
         case splitter: Splitter[_] => ???
       }).toMap
+    allStateMachines ++= connectorMachines.values
 
     val componentMachines: Map[StreamComponent, StateMachine] =
       (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_, _]]) yield {
         node match {
-          case input: StreamInput[_] => (input: StreamComponent, new InputMachine(input))
-          case output: StreamOutput[_, _] => (output: StreamComponent, new OutputMachine(output))
-          case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform))
+          case input: StreamInput[_] => (input: StreamComponent, new InputMachine(input, graphOps))
+          case output: StreamOutput[_, _] => (output: StreamComponent, new OutputMachine(output, graphOps))
+          case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
         }
       }).toMap
+    allStateMachines ++= componentMachines.values
 
     val sinkMachines: Map[StreamComponent, StateMachineWithInput[_]] =
       componentMachines.filter {
@@ -111,7 +131,9 @@ class FutureStreamBuilder {
 
     // Start the initial machines
     for (machine <- componentMachines.values if machine.isInstanceOf[InputMachine[_]]) {
-      machine.asInstanceOf[InputMachine[_]].run()
+      Future {
+        machine.asInstanceOf[InputMachine[_]].run()
+      }
     }
 
     new FutureStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running))

@@ -11,6 +11,11 @@ sealed trait RunningStreamComponent {
     * Sink, or to all chosen Sinks in the case of a Connector.
     *
     * A StreamOutput completes when its onComplete or onError function completes.
+    *
+    * Note that in the case of successful completion, all graph components complete this future before the graph's
+    * `FutureStream.completion` is completed. However, in case of failure, this will typically complete after the graph,
+    * because it will wait for the component's onError to complete. It may even never be completed, in case the graph fails,
+    * if some call to one of the component's onXxx functions never returns at all.
     */
   def completion: Future[Unit]
 }

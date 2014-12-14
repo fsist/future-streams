@@ -2,8 +2,15 @@ package com.fsist.stream
 
 import com.fsist.util.Func
 
-/** NOTE: if onNext or onComplete fails, the component is considered to be in a failed state and calling onError with
-  * the same error again is unnecessary. */
+/** onNext and onComplete are called non-concurrently, i.e. each call must complete before another call starts.
+  *
+  * onError is called *concurrently* wrt. onNext and onComplete.
+  *
+  * If onComplete has finished, onError will not be called even if the stream fails.
+  * If onComplete is in progress when the stream fails, onError will be called if onComplete doesn't finish before the
+  * call to onError is attempted.
+  * The consumer will never observe a call to onNext or onComplete after (the start of) a call to onError.
+  */
 trait StreamConsumer[-In, +Res] {
   def onNext: Func[In, Unit]
 

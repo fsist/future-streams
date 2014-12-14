@@ -25,19 +25,29 @@ sealed trait StreamInput[+Out] extends SourceBase[Out] {
     * @throws NoSuchElementException on EOF.
     */
   def producer: Func[Unit, Out]
+
+  def onError: Func[Throwable, Unit]
 }
 
 final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterator[Out]) extends StreamInput[Out] with SyncFunc[Unit, Out] {
   override def producer: Func[Unit, Out] = this
+
   override def apply(unit: Unit): Out = if (iter.hasNext) iter.next() else throw new NoSuchElementException
+
+  def onError: Func[Throwable, Unit] = Func.nop
 }
 
 final case class IterableSource[+Out](builder: FutureStreamBuilder, iterable: Iterable[Out]) extends StreamInput[Out] {
   override def producer: Func[Unit, Out] = new SyncFunc[Unit, Out] {
     val iter = iterable.iterator
+
     override def apply(a: Unit): Out = if (iter.hasNext) iter.next() else throw new NoSuchElementException
   }
+
+  def onError: Func[Throwable, Unit] = Func.nop
 }
+
+final case class GeneratorSource[+Out](builder: FutureStreamBuilder, producer: Func[Unit, Out], onError: Func[Throwable, Unit]) extends StreamInput[Out]
 
 object Source {
   def apply[Out](ts: Out*)(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
@@ -48,4 +58,8 @@ object Source {
 
   def from[Out](iter: Iterator[Out])(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     IteratorSource(builder, iter)
+
+  def generate[Out](producer: Func[Unit, Out], onError: Func[Throwable, Unit] = Func.nop)
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+    GeneratorSource(builder, producer, onError)
 }

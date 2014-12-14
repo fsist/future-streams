@@ -15,38 +15,25 @@ import com.fsist.util.FastAsync._
 import SyncFunc._
 
 object Sandbox {
-
-  {
-    class C1[T] {
-      type M = T
-      def foo(c2: C2[T]): Unit = {}
-      def fooM(c2: C2[M]): Unit = foo(c2)
-    }
-
-    class C2[T]
-
-    val c1: C1[_] = new C1[String]()
-    val c2: C2[_] = new C2[String]()
-
-    c1.fooM(c2.asInstanceOf[C2[c1.M]])
-
-    println("ok")
-  }
-
-
   def main(args: Array[String]): Unit = {
 
     implicit val ec = ExecutionContext.global
 
     val counter = new AtomicLong()
-    val source = Source.from(1L to 100000000L).map(_ + 1) //.foreach((x: Int) => counter += x)
-//    val sink = Sink.foreach(AsyncFunc((x: Long) => Future {counter.incrementAndGet()}), AsyncFunc(_ => Future.successful(())))(source.builder)
-    val sink = Sink.foreach(SyncFunc((x: Long) => counter.incrementAndGet()), AsyncFunc(_ => Future.successful(())))(source.builder)
-    val stream = source.to(sink)
+    val total = 10000000L
 
-    val fut2 = stream.runAndGet().result
+    def fut: Future[Unit] = {
+      val stream = Source.from(1L to total).map(_ + 1).map(_ + 1).map(_ + 1).map(_ + 1).map(_ + 1).map(_ + 1).foreach(_ => counter.incrementAndGet())
 
-    Await.result(fut2, 1.minute)
-    println(counter.get)
+      val start = System.currentTimeMillis()
+      stream.runAndGet().result.map {
+        case res =>
+          val end = System.currentTimeMillis()
+          val elapsed = end - start
+          println(s"$total in $elapsed ms = ${total/elapsed} items/ms")
+      }.flatMap (_ => fut)
+    }
+
+    Await.result(fut, 1.minute)
   }
 }

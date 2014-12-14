@@ -9,10 +9,18 @@ class FutureStream(val builder: FutureStreamBuilder,
                    val components: Map[StreamComponent, RunningStreamComponent],
                    val connectors: Map[Connector[_, _], RunningConnector[_, _]])
                   (implicit ec: ExecutionContext) {
-  /** Completes when all stream components have completed (as exposed by their `completion` future). */
+
+  /** Completes when all stream components have completed (as exposed by their `completion` future).
+    *
+    * NOTE: if the graph fails, this future may complete (with a failure) before all component onError methods have
+    * been called or competed. It is guaranteed to complete even if some components' onNext never return and so
+    * their onError is never called.
+    */
   def completion: Future[Unit] = streamCompletion
+
+  // Once all Outputs have completed, all other components must have completed as well.
   private lazy val streamCompletion: Future[Unit] =
-    Future.sequence(components.values.map(_.completion) ++ connectors.values.map(_.completion)) map (_ => ())
+    Future.sequence(components.values.filter(_.isInstanceOf[RunningStreamOutput[_, _]]).map(_.completion)) map (_ => ())
 
   // Convenience accessors follow
 
