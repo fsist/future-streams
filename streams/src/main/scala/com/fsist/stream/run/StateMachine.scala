@@ -1,16 +1,13 @@
 package com.fsist.stream.run
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import com.fsist.stream._
-import com.fsist.stream.run.StateMachine.{TransformMachine, OutputMachine}
 import com.fsist.util.concurrent.BoundedAsyncQueue
-import com.fsist.util.{BugException, Func, AsyncFunc, SyncFunc}
+import com.fsist.util.{Func, AsyncFunc, SyncFunc}
 import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging
 
+import scala.annotation.tailrec
 import scala.async.Async._
-import com.fsist.util.FastAsync._
 import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
@@ -60,7 +57,7 @@ private[run] sealed trait StateMachine extends Logging {
   def isFailed: Boolean = completionPromise.isCompleted && completionPromise.future.value.get.isFailure
 
   /** Returns true if NOT completed, false if completed successfully, and throws the failure exception if failed. */
-  def throwIfFailed: Boolean = if (!completionPromise.isCompleted) true
+  def throwIfFailed(): Boolean = if (!completionPromise.isCompleted) true
   else completionPromise.future.value.get match {
     case Failure(e) => throw e
     case Success(_) => false
@@ -133,11 +130,19 @@ private[run] object StateMachine extends Logging {
             futureSuccess
           }
           case asyncf: AsyncFunc[Unit, Unit] =>
-            async {
-              while (throwIfFailed) {
-                fastAwait(asyncf(()))
+            def startLoop(): Future[Unit] = loop()
+
+            @tailrec
+            def loop(): Future[Unit] = {
+              throwIfFailed()
+              val fut: Future[Unit] = asyncf(())
+              if (fut.isCompleted) loop()
+              else {
+                fut flatMap (_ => startLoop())
               }
             }
+
+            startLoop
         }
       )
 
