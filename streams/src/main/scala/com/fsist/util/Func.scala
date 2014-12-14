@@ -1,5 +1,7 @@
 package com.fsist.util
 
+import akka.http.util.FastFuture
+
 import scala.async.Async._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
@@ -226,8 +228,9 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
       case syncf: SyncFunc[B, C] => ComposedAsyncFunc(Func.pass, self, syncf)
 
       case asyncf2: AsyncFunc[B, C] => new AsyncFunc[A, C] {
-        override def apply(a: A)(implicit ec: ExecutionContext): Future[C] = async {
-          FastAsync.fastAwait(asyncf2(FastAsync.fastAwait(self(a))))
+        override def apply(a: A)(implicit ec: ExecutionContext): Future[C] = {
+          val fst = new FastFuture(self.apply(a))
+          fst.flatMap(asyncf2.apply)
         }
       }
     }
@@ -235,15 +238,8 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
 
   def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U] = AsyncFunc[A, U] { a =>
     try {
-      val fut = apply(a)
-      if (fut.isCompleted) fut.value.get match {
-        // Avoid scheduling an extra future
-        case Success(x) => fut
-        case Failure(e) =>
-          if (handler.isDefinedAt(e)) Future.successful(handler(e))
-          else Future.failed(e)
-      }
-      else fut.recover(handler)
+      val fut = new FastFuture(apply(a))
+      fut.recover(handler)
     }
     catch {
       case NonFatal(e) if handler.isDefinedAt(e) => Future.successful(handler(e))
