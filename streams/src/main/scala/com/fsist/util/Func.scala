@@ -2,7 +2,7 @@ package com.fsist.util
 
 import akka.http.util.FastFuture
 
-import scala.async.Async._
+import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 import scala.util.{Success, Failure}
@@ -133,13 +133,24 @@ object Func {
       SyncFunc[A, Unit]((a: A) => for (func <- syncFuncs) func.apply(a))
     }
     else {
-      AsyncFunc[A, Unit]((a: A) => async {
-        val iter = funcs.iterator
-        while (iter.hasNext) iter.next().fastAwait(a)
-      })
+      def loop(a: A, iter: Iterator[Func[A, _]]): Future[Unit] = loopStep(a, iter)
+
+      @tailrec
+      def loopStep(a: A, iter: Iterator[Func[A, _]]): Future[Unit] =
+        if (!iter.hasNext) futureSuccess
+        else iter.next() match {
+          case syncf: SyncFunc[A, _] =>
+            syncf(a)
+            loopStep(a, iter)
+          case asyncf: AsyncFunc[A, _] =>
+            val fut = asyncf(a)
+            if (fut.isCompleted) loopStep(a, iter)
+            else fut.flatMap(_ => loop(a, iter))
+        }
+
+      AsyncFunc[A, Unit]((a: A) => loop(a, funcs.iterator))
     }
   }
-
 }
 
 trait SyncFunc[-A, +B] extends Func[A, B] {
@@ -291,30 +302,16 @@ case class ComposedAsyncFunc[-A, +B, InnerA, InnerB](before: SyncFunc[A, InnerA]
     next match {
       case func if func.isPass => this.asInstanceOf[Func[A, C]] // B =:= C
 
-      case ComposedAsyncFunc(nextBefore: Func[B, _], nextMiddle, nextAfter) =>
+      case ComposedAsyncFunc(nextBefore, nextMiddle, nextAfter) =>
         val composedSyncPart = self.after ~> nextBefore
-
-        ComposedAsyncFunc(
-          self.before,
-          AsyncFunc.apply((x: InnerA) => async {
-            FastAsync.fastAwait(nextMiddle(composedSyncPart(FastAsync.fastAwait(self.middle(x)))))
-          }),
-          nextAfter
-        )
+        val middle = self.middle ~> composedSyncPart ~> nextMiddle
+        ComposedAsyncFunc(self.before, middle.asAsync, nextAfter)
 
       case syncf: SyncFunc[B, C] => ComposedAsyncFunc[A, C, InnerA, InnerB](before, middle, after ~> syncf)
 
-      case asyncf: AsyncFunc[B, C] => ComposedAsyncFunc(
-        self.before,
-        AsyncFunc.apply((x: InnerA) => async {
-          val one = self.after(FastAsync.fastAwait(self.middle(x)))
-          val three = FastAsync.fastAwait(asyncf(one))
-          three
-        }),
-        Func.pass[C]
-      )
+      case asyncf: AsyncFunc[B, C] =>
+        val middle = self.middle ~>self.after ~> asyncf
+        ComposedAsyncFunc(self.before, middle.asAsync, Func.pass[C])
     }
   }
-
 }
-
