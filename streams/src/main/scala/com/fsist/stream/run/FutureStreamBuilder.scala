@@ -13,12 +13,6 @@ import scala.concurrent.{Future, Promise, ExecutionContext}
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
 
-import scala.async.Async._
-
-import com.fsist.util.concurrent.FutureOps._
-
-import SyncFunc._
-
 /** Builds the mutable state describing the stream graph being built, and allows building it into a runnable [[FutureStream]].
   *
   * All operations are concurrent-safe, implemented using compare-and-swap on a single AtomicReference to an immutable State.

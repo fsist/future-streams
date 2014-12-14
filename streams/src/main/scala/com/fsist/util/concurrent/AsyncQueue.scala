@@ -2,13 +2,10 @@ package com.fsist.util.concurrent
 
 import java.util.concurrent.atomic.AtomicReference
 
-import com.fsist.stream
-import com.fsist.stream.Source
-import com.fsist.util.FastAsync._
+import akka.http.util.FastFuture
 import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec
-import scala.async.Async._
 import scala.collection.immutable.Queue
 import scala.concurrent.{ExecutionContext, Future, Promise}
 
@@ -107,16 +104,12 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) ex
   private val acks = new AsyncQueue[Unit]()
   for (i <- 1 to queueSize) acks.enqueue(())
 
-  def enqueue(t: T): Future[Unit] = async {
-    fastAwait(acks.dequeue())
-    queue.enqueue(t)
-  }
+  def enqueue(t: T): Future[Unit] = new FastFuture(acks.dequeue()) map (_ => queue.enqueue(t))
 
-  def dequeue(): Future[T] = async {
-    val output = fastAwait(queue.dequeue())
+  def dequeue(): Future[T] = new FastFuture(queue.dequeue()) map (output => {
     acks.enqueue(())
     output
-  }
+  })
 
   /** Try to dequeue an item synchronously if the queue is not empty. This competes synchronously with other calls to
     * `dequeue` and `tryDequeue`, and fairness is not guaranteed, so this method technically may never complete.
