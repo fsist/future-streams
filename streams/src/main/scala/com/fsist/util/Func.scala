@@ -8,7 +8,7 @@ import scala.language.implicitConversions
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
 
-sealed trait Func[-A, +B] extends FuncBase[A, B] {
+sealed trait Func[-A, +B] {
   /** Returns true iff this is a [[SyncFunc]] */
   def isSync: Boolean
 
