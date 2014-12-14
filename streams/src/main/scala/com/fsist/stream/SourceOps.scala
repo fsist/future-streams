@@ -59,7 +59,7 @@ trait SourceOps[+Out] {
     Sink.foldLeft(init)(onNext, onComplete, onError)(builder, ec)
 
   def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
-                       (implicit cbf: CanBuildFrom[M[_], In, M[In]],
+                       (implicit cbf: CanBuildFrom[Nothing, In, M[In]],
                         builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] =
     Sink.collect(onError)(cbf, builder)
 

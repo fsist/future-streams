@@ -59,7 +59,7 @@ object Sink {
   }
 
   def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
-                       (implicit cbf: CanBuildFrom[M[_], In, M[In]],
+                       (implicit cbf: CanBuildFrom[Nothing, In, M[In]],
                         builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] = {
     val m = cbf.apply()
     val userOnError = onError
