@@ -1,5 +1,6 @@
 package com.fsist.stream.run
 
+import akka.http.util.FastFuture
 import com.fsist.stream._
 import com.fsist.util.concurrent.BoundedAsyncQueue
 import com.fsist.util.{Func, AsyncFunc, SyncFunc}
@@ -7,6 +8,8 @@ import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec
+import scala.collection.immutable.BitSet
+import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
@@ -220,9 +223,6 @@ private[run] object StateMachine extends Logging {
 
   class MergerMachine[T](val merger: Merger[T], val graph: GraphOps)
                         (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] with RunnableMachine {
-
-    import MergerMachine._
-
     override val running: RunningConnector[T, T] = RunningConnector(completionPromise.future, merger)
 
     private val queue = new BoundedAsyncQueue[Option[T]](1)
@@ -276,10 +276,44 @@ private[run] object StateMachine extends Logging {
     }
   }
 
-  object MergerMachine {
+  class SplitterMachine[T](val splitter: Splitter[T], val graph: GraphOps)
+                          (implicit val ec: ExecutionContext) extends ConnectorMachine[T] {
+    type TT = T
 
-    private case object EOF extends Exception
+    // Initialized by the stream builder before running
+    val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to splitter.outputCount) map (_ => None): _*)
 
+    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, splitter)
+
+    override def userOnError: Func[Throwable, Unit] = Func.nop
+
+    override lazy val consumer: Consumer[T] = {
+      val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
+
+      def chooseOutputs(indexes: BitSet): Vector[Func[T, _]] = {
+        val iter = indexes.iterator
+        val builder = Vector.newBuilder[Func[T, _]]
+        while (iter.hasNext) builder += outputs(iter.next()).consumer.onNext
+        builder.result()
+      }
+
+      val onNext: Func[T, Unit] = splitter.outputChooser match {
+        case syncf: SyncFunc[T, BitSet] => Func.flatten(Func((t: T) => {
+          val outputs = chooseOutputs(syncf(t))
+          Func.tee(outputs: _*)
+        }))
+        case asyncf: AsyncFunc[T, BitSet] => Func.flatten(AsyncFunc((t: T) => {
+          new FastFuture(asyncf(t)).map {
+            case indexes: BitSet => Func.tee(chooseOutputs(indexes): _*)
+          }
+        }))
+      }
+
+      val onComplete = Func.tee(outputs.map(_.consumer.onComplete) : _*)
+
+      Consumer(onNext, onComplete)
+    }
   }
-
 }
+
+// TODO once and for all: when do we use FastFuture.map vs. writing out `if future.isCompleted ...` manually?

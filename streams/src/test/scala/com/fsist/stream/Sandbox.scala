@@ -11,19 +11,20 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, ExecutionContext}
 
 class Sandbox extends FunSuite with FutureTester {
-  test("sandbox") {
-    //    System.setProperty("scala.concurrent.context.maxThreads", "1")
-    //    System.setProperty("scala.concurrent.context.minThreads", "1")
-    //    System.setProperty("scala.concurrent.context.numThreads", "1")
+  //    System.setProperty("scala.concurrent.context.maxThreads", "1")
+  //    System.setProperty("scala.concurrent.context.minThreads", "1")
+  //    System.setProperty("scala.concurrent.context.numThreads", "1")
 
-    implicit val defaultEc = ExecutionContext.global
-//        implicit val ec = new ExecutionContext {
-//          override def reportFailure(t: Throwable): Unit = logger.error(s"Failure in future", t)
-//          override def execute(runnable: Runnable): Unit = {
-//            logger.info(s"EC execute from: ${(new Exception).getStackTraceString}")
-//            ExecutionContext.global.execute(runnable)
-//          }
-//        }
+  implicit val defaultEc = ExecutionContext.global
+  //        implicit val ec = new ExecutionContext {
+  //          override def reportFailure(t: Throwable): Unit = logger.error(s"Failure in future", t)
+  //          override def execute(runnable: Runnable): Unit = {
+  //            logger.info(s"EC execute from: ${(new Exception).getStackTraceString}")
+  //            ExecutionContext.global.execute(runnable)
+  //          }
+  //        }
+
+  test("sandbox") {
 
     val counter = new AtomicLong()
     val total = 1000000L
@@ -32,7 +33,7 @@ class Sandbox extends FunSuite with FutureTester {
       val src = Source.from(1L to total)
       val mapped = (1 to 5).foldLeft(src: Source[Long]) {
         case (src, i) =>
-          src.transform(Transform.map[Long, Long](AsyncFunc(x => FastFuture.successful(x + 1)))(src.builder))
+          src.transform(Transform.map[Long, Long](AsyncFunc(x => FastFuture.successful(x + 1))))
             .map(_ + 1)
       }
       val stream = mapped.foreach(_ => counter.incrementAndGet())
@@ -47,5 +48,16 @@ class Sandbox extends FunSuite with FutureTester {
     }
 
     fut.futureValue(Timeout(10.minutes))
+  }
+
+  test("split and merge") {
+    val splitter = Source.from(1 to 10).tee(3) //.roundRobin(3)
+    val merger = Merger[Int](3)
+    for ((output, input) <- splitter.outputs.zip(merger.inputs)) {
+      output.connect(input)
+    }
+    val sink = merger.outputs(0).foreach(println(_))
+
+    sink.runAndGet().result.futureValue(Timeout(10.minutes))
   }
 }

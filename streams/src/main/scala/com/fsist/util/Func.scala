@@ -152,41 +152,6 @@ object Func {
     }
   }
 
-  /** A generalization of `tee` to any number of functions given in `funcs`. */
-  def teeMany[A](funcs: Iterable[Func[A, _]]): Func[A, Unit] = {
-    if (funcs.forall(_.isSync)) {
-      new SyncFunc[A, Unit] {
-        override def apply(a: A): Unit = {
-          val iter = funcs.iterator
-          while (iter.hasNext) {
-            iter.next().asSync(a)
-          }
-        }
-      }
-    }
-    else {
-      new AsyncFunc[A, Unit] {
-        private def loop(a: A, iter: Iterator[Func[A, _]])(implicit ec: ExecutionContext): Future[Unit] = loopStep(a, iter)
-
-        @tailrec
-        private def loopStep(a: A, iter: Iterator[Func[A, _]])(implicit ec: ExecutionContext): Future[Unit] = {
-          if (! iter.hasNext) futureSuccess
-          else iter.next() match {
-            case syncf: SyncFunc[A, _] =>
-              syncf(a)
-              loopStep(a, iter)
-            case asyncf: AsyncFunc[A, _] =>
-              val fut = asyncf(a)
-              if (fut.isCompleted) loopStep(a, iter)
-              else fut.flatMap(_ => loop(a, iter))
-          }
-        }
-
-        override def apply(a: A)(implicit ec: ExecutionContext): Future[Unit] = loop(a, funcs.iterator)
-      }
-    }
-  }
-
   /** A function that applies `target` for each item in the inputs sequentially. The results of `target` are discarded. */
   def foreach[A](target: Func[A, _]): Func[Iterable[A], Unit] = target match {
     case syncf: SyncFunc[A, _] =>
@@ -199,11 +164,31 @@ object Func {
     case asyncf: AsyncFunc[A, _] =>
       new AsyncFunc[Iterable[A], Unit] {
         private def loopStep(iter: Iterator[A])(implicit ec: ExecutionContext): Future[Unit] = {
-          if (! iter.hasNext) futureSuccess
+          if (!iter.hasNext) futureSuccess
           else asyncf(iter.next()) map (_ => loopStep(iter))
         }
 
         override def apply(a: Iterable[A])(implicit ec: ExecutionContext): Future[Unit] = loopStep(a.iterator)
+      }
+  }
+
+  /** Flattens a function by calling the original function, and then calling the returned function with the same input. */
+  def flatten[A, B](func: Func[A, Func[A, B]]): Func[A, B] = func match {
+    case syncf: SyncFunc[A, Func[A, B]] =>
+      new AsyncFunc[A, B] {
+        override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = syncf(a) match {
+          case syncf2: SyncFunc[A, B] => FastFuture.successful(syncf2(a))
+          case asyncf: AsyncFunc[A, B] => asyncf(a)
+        }
+      }
+    case asyncf: AsyncFunc[A, Func[A, B]] =>
+      new AsyncFunc[A, B] {
+        override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = {
+          new FastFuture(asyncf(a)).flatMap(_ match {
+            case syncf2: SyncFunc[A, B] => FastFuture.successful(syncf2(a))
+            case asyncf: AsyncFunc[A, B] => asyncf(a)
+          })
+        }
       }
   }
 }
@@ -368,7 +353,7 @@ case class ComposedAsyncFunc[-A, +B, InnerA, InnerB](before: SyncFunc[A, InnerA]
       case syncf: SyncFunc[B, C] => ComposedAsyncFunc[A, C, InnerA, InnerB](before, middle, after ~> syncf)
 
       case asyncf: AsyncFunc[B, C] =>
-        val middle = self.middle ~>self.after ~> asyncf
+        val middle = self.middle ~> self.after ~> asyncf
         ComposedAsyncFunc(self.before, middle.asAsync, Func.pass[C])
     }
   }
