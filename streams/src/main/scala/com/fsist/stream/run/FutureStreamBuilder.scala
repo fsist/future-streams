@@ -38,8 +38,7 @@ import scalax.collection.immutable.Graph
   * (e.g. any custom Func which is a closure over external mutable state), the behavior of the second and future streams
   * will be undefined.
   */
-class FutureStreamBuilder {
-
+class FutureStreamBuilder extends Logging {
   import FutureStreamBuilder._
 
   private val state = new AtomicReference[State](State())
@@ -58,14 +57,39 @@ class FutureStreamBuilder {
     * This doesn't link it to any other components; it's a safety measure that lets us detect any unconnected components
     * when `build` is called.
     */
-  def register(component: StreamComponent): Unit = alterState(_.map(_ + component))
+  def register(component: StreamComponent): Unit = alterState(_.mapGraph(_ + component))
 
-  /** Irreversibly connects two components together. */
-  def connect[In >: Out, Out](source: Source[Out], sink: Sink[In]): Unit = alterState(_.map(_ + DiEdge(source, sink)))
+  private def link(builder: FutureStreamBuilder): Unit = {
+    if (! state.get.linked.contains(builder)) {
+      alterState(_.mapLinked(_ + builder))
+      builder.link(this)
+    }
+  }
+
+  /** Irreversibly connects two components together, and possibly links their builders. */
+  def connect[In >: Out, Out](source: Source[Out], sink: Sink[In]): Unit = {
+    alterState(_.mapGraph(_ + DiEdge(source, sink)))
+    if (source.builder ne this) link(source.builder)
+    if (sink.builder ne this) link(sink.builder)
+  }
+
+  private def collectLinkedBuilders(seen: Set[FutureStreamBuilder] = Set.empty,
+                                    next: FutureStreamBuilder = this): Set[FutureStreamBuilder] = {
+    if (seen.contains(next)) seen
+    else {
+      next.state.get().linked.foldLeft(seen + next)(collectLinkedBuilders)
+    }
+  }
+
+  private def mergeLinkedStates(): State =
+    collectLinkedBuilders().foldLeft(State()) {
+      case (state, builder) => state.merge(builder.state.get)
+    }
 
   /** Builds and starts a runnable FutureStream from the current graph. */
   def run()(implicit ec: ExecutionContext): FutureStream = {
-    val st = state.get()
+    val st = mergeLinkedStates()
+
     validateBeforeBuilding(st)
 
     val model = st.graph
@@ -94,7 +118,7 @@ class FutureStreamBuilder {
     val connectorMachines: Map[Connector[_, _], ConnectorMachine[_]] =
       allConnectors.map({
         case merger: Merger[_] => (merger, new MergerMachine(merger, graphOps))
-        case splitter: Splitter[_] => ???
+        case splitter: Splitter[_] => ??? // TODO
       }).toMap
     allStateMachines ++= connectorMachines.values
 
@@ -119,7 +143,7 @@ class FutureStreamBuilder {
       componentMachines(from) match {
         case machine: StateMachineWithOneOutput[_] =>
           machine.next = Some(sinkMachines(to).asInstanceOf[StateMachineWithInput[machine.TOut]])
-        case other => ???
+        case other => ??? // TODO
       }
     }
 
@@ -172,8 +196,11 @@ object FutureStreamBuilder {
   private type ModelGraph = Graph[StreamComponent, DiEdge]
 
   /** Complete state of FutureStreamBuilder before `build` is called, describing the model graph. */
-  private case class State(graph: ModelGraph = Graph.empty[StreamComponent, DiEdge]) {
-    def map(func: ModelGraph => ModelGraph) = copy(graph = func(this.graph))
+  private case class State(graph: ModelGraph = Graph.empty, linked: Set[FutureStreamBuilder] = Set.empty) {
+    def mapGraph(func: ModelGraph => ModelGraph) : State = copy(graph = func(this.graph))
+    def mapLinked(func: Set[FutureStreamBuilder] => Set[FutureStreamBuilder]) : State = copy(linked = func(this.linked))
+
+    def merge(other: State): State = State(graph ++ other.graph, linked ++ other.linked)
   }
 
 }
