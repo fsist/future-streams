@@ -151,7 +151,65 @@ object Func {
       AsyncFunc[A, Unit]((a: A) => loop(a, funcs.iterator))
     }
   }
+
+  /** A generalization of `tee` to any number of functions given in `funcs`. */
+  def teeMany[A](funcs: Iterable[Func[A, _]]): Func[A, Unit] = {
+    if (funcs.forall(_.isSync)) {
+      new SyncFunc[A, Unit] {
+        override def apply(a: A): Unit = {
+          val iter = funcs.iterator
+          while (iter.hasNext) {
+            iter.next().asSync(a)
+          }
+        }
+      }
+    }
+    else {
+      new AsyncFunc[A, Unit] {
+        private def loop(a: A, iter: Iterator[Func[A, _]])(implicit ec: ExecutionContext): Future[Unit] = loopStep(a, iter)
+
+        @tailrec
+        private def loopStep(a: A, iter: Iterator[Func[A, _]])(implicit ec: ExecutionContext): Future[Unit] = {
+          if (! iter.hasNext) futureSuccess
+          else iter.next() match {
+            case syncf: SyncFunc[A, _] =>
+              syncf(a)
+              loopStep(a, iter)
+            case asyncf: AsyncFunc[A, _] =>
+              val fut = asyncf(a)
+              if (fut.isCompleted) loopStep(a, iter)
+              else fut.flatMap(_ => loop(a, iter))
+          }
+        }
+
+        override def apply(a: A)(implicit ec: ExecutionContext): Future[Unit] = loop(a, funcs.iterator)
+      }
+    }
+  }
+
+  /** A function that applies `target` for each item in the inputs sequentially. The results of `target` are discarded. */
+  def foreach[A](target: Func[A, _]): Func[Iterable[A], Unit] = target match {
+    case syncf: SyncFunc[A, _] =>
+      new SyncFunc[Iterable[A], Unit] {
+        override def apply(input: Iterable[A]): Unit = {
+          val iter = input.iterator
+          while (iter.hasNext) syncf(iter.next())
+        }
+      }
+    case asyncf: AsyncFunc[A, _] =>
+      new AsyncFunc[Iterable[A], Unit] {
+        private def loopStep(iter: Iterator[A])(implicit ec: ExecutionContext): Future[Unit] = {
+          if (! iter.hasNext) futureSuccess
+          else asyncf(iter.next()) map (_ => loopStep(iter))
+        }
+
+        override def apply(a: Iterable[A])(implicit ec: ExecutionContext): Future[Unit] = loopStep(a.iterator)
+      }
+  }
 }
+
+// TODO whereever possible, replace SyncFunc.apply and AsyncFunc.apply with new (A)SyncFunc to replace extra function
+// objects (closures) with methods.
 
 trait SyncFunc[-A, +B] extends Func[A, B] {
   override def isSync: Boolean = true

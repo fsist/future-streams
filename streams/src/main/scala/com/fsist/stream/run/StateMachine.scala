@@ -7,7 +7,6 @@ import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec
-import scala.async.Async._
 import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
@@ -212,49 +211,8 @@ private[run] object StateMachine extends Logging {
           Consumer(onNext, onComplete)
 
         case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
-          val onNext =
-            if (trOnNext.isSync && consumerOnNext.isSync) {
-              val trOnNextSync = trOnNext.asSync
-              val consumerOnNextSync = consumerOnNext.asSync
-              SyncFunc((in: In) => {
-                val batch = trOnNextSync(in)
-                val iter = batch.iterator
-                while (iter.hasNext) consumerOnNextSync(iter.next)
-              })
-            }
-            else {
-              AsyncFunc((in: In) => async {
-                val batch = trOnNext.fastAwait(in)
-                val iter = batch.iterator
-                while (iter.hasNext) consumerOnNext.fastAwait(iter.next)
-              })
-            }
-
-          val onComplete =
-            (if (trOnComplete.isSync && consumerOnNext.isSync && consumerOnComplete.isSync) {
-              val trOnCompleteSync = trOnComplete.asSync
-              val consumerOnNextSync = consumerOnNext.asSync
-              val consumerOnCompleteSync = consumerOnComplete.asSync
-              SyncFunc((unit: Unit) => {
-                val lastBatch = trOnCompleteSync(())
-                val iter = lastBatch.iterator
-                while (iter.hasNext) consumerOnNextSync(iter.next)
-                consumerOnCompleteSync(())
-              })
-            }
-            else {
-              AsyncFunc((_: Unit) => async {
-                val lastBatch = trOnComplete.fastAwait(())
-                val iter = lastBatch.iterator
-                while (iter.hasNext) consumerOnNext.fastAwait(iter.next)
-
-                // consumerOnComplete.fastAwait(()) // Doesn't work because of some weird macro problem.
-                // Should be equivalent to the two following lines.
-                if (consumerOnComplete.isSync) consumerOnComplete.asSync.apply(())
-                else await(consumerOnComplete.asAsync.apply(()))
-              })
-            }) ~> SyncFunc[Any, Unit](_ => ())
-
+          val onNext = trOnNext ~> Func.foreach(consumer.onNext)
+          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           Consumer(onNext, onComplete)
       }
     }
