@@ -133,7 +133,12 @@ object Func {
     }
     else if (funcs.forall(_.isSync)) {
       val syncFuncs = funcs.map(_.asSync)
-      SyncFunc[A, Unit]((a: A) => for (func <- syncFuncs) func.apply(a))
+      SyncFunc[A, Unit]((a: A) => {
+        val iter = syncFuncs.iterator
+        while (iter.hasNext) {
+          iter.next().apply(a)
+        }
+      })
     }
     else {
       def loop(a: A, iter: Iterator[Func[A, _]]): Future[Unit] = loopStep(a, iter)
