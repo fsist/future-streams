@@ -68,12 +68,19 @@ trait SourceOps[+Out] {
     to(output)
   }
 
-  def foldLeft[Super >: Out, Res, State](state: State)(onNext: Func[(Super, State), State], onComplete: Func[State, Res],
-                                                       onError: Func[Throwable, Unit] = Func.nop)
+  // NOTE: these two overloads of foldLeft have slightly different signatures to let them coexist.
+  // One matches the signature of Sink.foldLeft; the other matches Iterable.foldLeft.
+
+  def foldLeft[Super >: Out, Res, State](state: State, onNext: Func[(Super, State), State], onComplete: Func[State, Res],
+                                         onError: Func[Throwable, Unit] = Func.nop)
                                         (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
     val sink = Sink.foldLeft[Super, Res, State](state)(onNext, onComplete, onError)(builder, ec)
     to(sink)
   }
+
+  def foldLeft[Super >: Out, State](state: State)(onNext: (Super, State) => State)
+                                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, State] =
+    foldLeft(state, Func(Function.tupled(onNext)), Func.pass[State])
 
   def collect[Super >: Out, M[_]](onError: Func[Throwable, Unit] = Func.nop)
                                  (implicit cbf: CanBuildFrom[Nothing, Super, M[Super]],

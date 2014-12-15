@@ -37,6 +37,12 @@ private[stream] trait StreamOutputBase[-In, +Res] extends StreamOutput[In, Res]
 
 final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder, consumer: StreamConsumer[In, Res]) extends StreamOutput[In, Res]
 
+object SimpleOutput {
+  def apply[In, Res](consumer: StreamConsumer[In, Res])
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): SimpleOutput[In, Res] =
+    apply(builder, consumer)
+}
+
 object Sink {
   def foreach[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
