@@ -28,13 +28,17 @@ trait SourceOps[+Out] {
                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
     transform(Transform.map(mapper))
 
+  def flatMap[Next](mapper: Out => Iterable[Next])
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.flatMap(mapper))
+
   def filter(filter: Out => Boolean)
             (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
     transform(Transform.filter(filter))
 
-  def skip(count: Long)
+  def drop(count: Long)
           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
-    transform(Transform.skip(count))
+    transform(Transform.drop(count))
 
   // Shortcuts for Sink constructors
 
