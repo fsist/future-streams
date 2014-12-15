@@ -4,6 +4,7 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.{SyncFunc, Func}
 import com.fsist.util.SyncFunc._
 
+import scala.collection.immutable
 import scala.collection.immutable.{IndexedSeq, BitSet}
 
 sealed trait ConnectorEdge[-In, +Out] extends StreamComponent {
@@ -36,7 +37,23 @@ final case class ConnectorOutput[-In, +Out](connector: Connector[In, Out], index
 sealed trait Connector[-In, +Out] {
   def inputs: IndexedSeq[ConnectorInput[In, Out]]
 
+  def connectInputs(sources: immutable.Seq[Source[In]]): this.type = {
+    require(sources.size == inputs.size, s"Must pass the same number of sources as we have inputs, was ${sources.size} vs ${inputs.size}")
+
+    for ((source, input) <- sources zip inputs) source.connect(input)
+
+    this
+  }
+
   def outputs: IndexedSeq[ConnectorOutput[In, Out]]
+
+  def connectOutputs(sinks: immutable.Seq[Sink[Out]]): this.type = {
+    require(sinks.size == outputs.size, s"Must pass the same number of sinks as we have outputs, was ${sinks.size} vs ${outputs.size}")
+
+    for ((sink, output) <- sinks zip outputs) output.connect(sink)
+
+    this
+  }
 
   def edges: IndexedSeq[ConnectorEdge[In, Out]] = inputs ++ outputs
 
@@ -55,6 +72,7 @@ final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
 
   val inputs = Vector(ConnectorInput(this, 0))
   def input = inputs(0)
+
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
 }
 
