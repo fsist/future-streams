@@ -1,11 +1,7 @@
 package com.fsist.stream
 
-import com.fsist.FutureTester
-import com.fsist.util.{SyncFunc, Func}
+import com.fsist.util.Func
 import org.scalatest.FunSuite
-
-import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
 
 class StreamOutputTest extends FunSuite with StreamTester {
   test("SimpleOutput") {

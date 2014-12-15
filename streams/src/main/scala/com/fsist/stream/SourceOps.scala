@@ -38,24 +38,6 @@ trait SourceOps[+Out] {
 
   // Shortcuts for Sink constructors
 
-  def foreach[Super >: Out](func: Super => Unit)
-                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Unit] = {
-    val output = Sink.foreach(func)
-    to(output)
-  }
-
-  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res)
-                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
-    val output = Sink.foreach(func, onComplete)
-    to(output)
-  }
-
-  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res, onError: Throwable => Unit)
-                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
-    val output = Sink.foreach(func, onComplete, onError)
-    to(output)
-  }
-
   def foreach[Super >: Out, Res](func: Func[Super, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
                                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)

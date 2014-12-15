@@ -1,9 +1,7 @@
 package com.fsist.stream
 
-import com.fsist.FutureTester
 import com.fsist.util.Func
 import org.scalatest.FunSuite
-import scala.concurrent.ExecutionContext
 
 class StreamInputTest extends FunSuite with StreamTester {
   test("IteratorSource") {

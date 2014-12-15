@@ -9,14 +9,29 @@ import scala.concurrent.{Future, ExecutionContext}
 
 sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
   def builder: FutureStreamBuilder
+
   def onError: Func[Throwable, Unit]
 }
 
 final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Out],
                                             onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out]
 
+object SingleTransform {
+  def apply[In, Out](onNext: Func[In, Out],
+                     onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit] = Func.nop)
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): SingleTransform[In, Out] =
+    apply(builder, onNext, onComplete, onError)
+}
+
 final case class MultiTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Seq[Out]],
                                            onComplete: Func[Unit, Seq[Out]], onError: Func[Throwable, Unit]) extends Transform[In, Out]
+
+object MultiTransform {
+  def apply[In, Out](onNext: Func[In, Seq[Out]],
+                     onComplete: Func[Unit, Seq[Out]], onError: Func[Throwable, Unit] = Func.nop)
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): MultiTransform[In, Out] =
+    apply(builder, onNext, onComplete, onError)
+}
 
 object Transform {
   def map[In, Out](mapper: Func[In, Out])
@@ -32,14 +47,14 @@ object Transform {
           override def apply(a: In): List[In] = if (syncf(a)) List(a) else List.empty
         }
 
-        //SyncFunc(x => if (syncf(x)) List(x) else List.empty)
+      //SyncFunc(x => if (syncf(x)) List(x) else List.empty)
       case asyncf: AsyncFunc[In, Boolean] => new AsyncFunc[In, List[In]] {
         override def apply(a: In)(implicit ec: ExecutionContext): Future[List[In]] =
           new FastFuture(asyncf(a)) map (ok => if (ok) List(a) else List.empty)
       }
     }
 
-    MultiTransform[In, In](builder, func, SyncFunc(_ => List.empty), Func.nop)
+    MultiTransform(func, Func(List.empty))(builder)
   }
 
   def skip[T](count: Long)

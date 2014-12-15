@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicLong
 
 import akka.http.util.FastFuture
 import com.fsist.FutureTester
-import com.fsist.util.AsyncFunc
+import com.fsist.util.{Func, AsyncFunc}
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import scala.concurrent.duration._
@@ -36,7 +36,7 @@ class Sandbox extends FunSuite with FutureTester {
           src.transform(Transform.map[Long, Long](AsyncFunc(x => FastFuture.successful(x + 1))))
             .map(_ + 1)
       }
-      val stream = mapped.foreach(_ => counter.incrementAndGet())
+      val stream = mapped.foreach((_: Any) => { counter.incrementAndGet(); () } )
 
       val start = System.currentTimeMillis()
       stream.buildResult().map {
@@ -56,7 +56,7 @@ class Sandbox extends FunSuite with FutureTester {
     for ((output, input) <- splitter.outputs.zip(merger.inputs)) {
       output.connect(input)
     }
-    val sink = merger.outputs(0).foreach(println(_))
+    val sink = merger.outputs(0).foreach((x: Int) => println(x))
 
     sink.buildResult().futureValue(Timeout(10.minutes))
   }
