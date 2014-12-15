@@ -1,5 +1,7 @@
 package com.fsist.stream.run
 
+import java.util.concurrent.atomic.AtomicInteger
+
 import akka.http.util.FastFuture
 import com.fsist.stream._
 import com.fsist.util.concurrent.{AsyncQueue, BoundedAsyncQueue}
@@ -236,6 +238,8 @@ private[run] object StateMachine extends Logging {
                         (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] with RunnableMachine {
     override val running: RunningConnector[T, T] = RunningConnector(completionPromise.future, merger)
 
+    // We enqueue a None each time one input sees onComplete. The dequeuer, in `run`, counts the None elements
+    // and emits its own onComplete when one None has been seen for each input.
     private val queue = new BoundedAsyncQueue[Option[T]](1)
 
     // The same consumer is used for all inputs, and is concurrent-safe.
@@ -248,6 +252,8 @@ private[run] object StateMachine extends Logging {
 
       Consumer(onNext, onComplete)
     }
+
+    private val inputsTerminated = new AtomicInteger()
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
@@ -270,13 +276,17 @@ private[run] object StateMachine extends Logging {
                 asyncf(t)
             }) flatMap (_ => loopStep())
           case None =>
-            consumerOnComplete match {
-              case syncf: SyncFunc[Unit, Unit] =>
-                syncf(())
-                futureSuccess
-              case asyncf: AsyncFunc[Unit, Unit] =>
-                asyncf(())
+            val counted = inputsTerminated.incrementAndGet()
+            if (counted == merger.inputCount) {
+              consumerOnComplete match {
+                case syncf: SyncFunc[Unit, Unit] =>
+                  syncf(())
+                  futureSuccess
+                case asyncf: AsyncFunc[Unit, Unit] =>
+                  asyncf(())
+              }
             }
+            else futureSuccess
         }
       } recover {
         case NonFatal(e) => graph.failGraph(e)
