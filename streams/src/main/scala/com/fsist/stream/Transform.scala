@@ -1,5 +1,7 @@
 package com.fsist.stream
 
+import java.util.concurrent.atomic.AtomicLong
+
 import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.{AsyncFunc, SyncFunc, Func}
@@ -38,5 +40,21 @@ object Transform {
     }
 
     MultiTransform[In, In](builder, func, SyncFunc(_ => List.empty), Func.nop)
+  }
+
+  def skip[T](count: Long)
+             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
+    val counter = new AtomicLong(count)
+
+    val onNext = new SyncFunc[T, Seq[T]] {
+      override def apply(a: T): Seq[T] = {
+        val counted = counter.decrementAndGet()
+        // Prevent eventual wraparound
+        if (counted < 1000000) counter.set(0)
+        if (counted <= 0) Seq(a) else Seq.empty
+      }
+    }
+
+    MultiTransform(builder, onNext, Func.const(Seq.empty), Func.nop)
   }
 }

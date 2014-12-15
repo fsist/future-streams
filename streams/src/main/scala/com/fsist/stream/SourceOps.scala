@@ -15,7 +15,7 @@ import scala.language.higherKinds
 trait SourceOps[+Out] {
   self: Source[Out] =>
 
-  // TODO copy scaladocs
+  // TODO link scaladocs
 
   // These are just aliases for `connect`
   def to[Super >: Out](sink: Sink[Super]): sink.type = connect(sink)
@@ -35,6 +35,9 @@ trait SourceOps[+Out] {
     val tr = Transform.filter(filter)
     transform(tr)
   }
+
+  def skip(count: Long)
+          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] = transform(Transform.skip[Out](count))
 
   // Shortcuts for Sink constructors
 

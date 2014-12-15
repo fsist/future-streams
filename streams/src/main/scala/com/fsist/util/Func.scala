@@ -73,7 +73,6 @@ sealed trait Func[-A, +B] {
 object Func {
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = SyncFunc(f)
 
-
   implicit def apply[B](f: => B): SyncFunc[Unit, B] = SyncFunc(f)
 
   private[util] val futureSuccess = Future.successful(())
@@ -118,6 +117,10 @@ object Func {
     override def recoverWith[U >: Unit](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[Any, U] = this
 
     override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
+  }
+
+  def const[T](t: T): SyncFunc[Unit, T] = new SyncFunc[Unit, T] {
+    override def apply(a: Unit): T = t
   }
 
   /** Returns a function that will call all of the `funcs` with the same input, in order, unless one of them fails.
