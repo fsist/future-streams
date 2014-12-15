@@ -4,13 +4,8 @@ import com.fsist.FutureTester
 import com.fsist.util.Func
 import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
-import scala.concurrent.duration._
 
-class SourceTest extends FunSuite with FutureTester {
-  override implicit def patienceConfig = PatienceConfig(1.minute)
-
-  implicit def ec: ExecutionContext = ExecutionContext.global
-
+class StreamInputTest extends FunSuite with StreamTester {
   test("IteratorSource") {
     val range = 1 to 10
     val iter = range.iterator

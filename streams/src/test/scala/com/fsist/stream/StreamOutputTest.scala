@@ -7,11 +7,7 @@ import org.scalatest.FunSuite
 import scala.concurrent.ExecutionContext
 import scala.concurrent.duration._
 
-class StreamOutputTest extends FunSuite with FutureTester {
-  override implicit def patienceConfig = PatienceConfig(1.minute)
-
-  implicit def ec: ExecutionContext = ExecutionContext.global
-
+class StreamOutputTest extends FunSuite with StreamTester {
   test("SimpleOutput") {
     val data = 1 to 10
     val source = Source.from(data)
