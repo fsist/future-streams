@@ -39,7 +39,7 @@ class Sandbox extends FunSuite with FutureTester {
       val stream = mapped.foreach(_ => counter.incrementAndGet())
 
       val start = System.currentTimeMillis()
-      stream.runAndGet().result.map {
+      stream.buildResult().map {
         case res =>
           val end = System.currentTimeMillis()
           val elapsed = end - start
@@ -58,6 +58,6 @@ class Sandbox extends FunSuite with FutureTester {
     }
     val sink = merger.outputs(0).foreach(println(_))
 
-    sink.runAndGet().result.futureValue(Timeout(10.minutes))
+    sink.buildResult().futureValue(Timeout(10.minutes))
   }
 }

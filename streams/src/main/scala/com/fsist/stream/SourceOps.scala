@@ -18,26 +18,23 @@ trait SourceOps[+Out] {
   // TODO link scaladocs
 
   // These are just aliases for `connect`
-  def to[Super >: Out](sink: Sink[Super]): sink.type = connect(sink)
+  def to(sink: Sink[Out]): sink.type = connect(sink)
 
-  def transform[Super >: Out, Next](tr: Transform[Super, Next]): tr.type = connect(tr)
+  def transform[Next](tr: Transform[Out, Next]): tr.type = connect(tr)
 
   // Shortcuts for Transform constructors
 
   def map[Next](mapper: Out => Next)
-               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] = {
-    val tr = Transform.map(mapper)
-    transform(tr)
-  }
+               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.map(mapper))
 
   def filter(filter: Out => Boolean)
-            (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] = {
-    val tr = Transform.filter(filter)
-    transform(tr)
-  }
+            (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
+    transform(Transform.filter(filter))
 
   def skip(count: Long)
-          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] = transform(Transform.skip[Out](count))
+          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
+    transform(Transform.skip(count))
 
   // Shortcuts for Sink constructors
 
@@ -59,21 +56,40 @@ trait SourceOps[+Out] {
     to(output)
   }
 
+  def foreach[Super >: Out, Res](func: Func[Super, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
+                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
+    val output = Sink.foreach(func, onComplete, onError)
+    to(output)
+  }
+
   def foreachAsync[Super >: Out](func: Super => Future[Unit])
                                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Unit] = {
     val output = Sink.foreach(AsyncFunc(func))
     to(output)
   }
 
-  def foldLeft[In, Res, State](init: State)(onNext: Func[(In, State), State], onComplete: Func[State, Res],
-                                            onError: Func[Throwable, Unit] = Func.nop)
-                              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] =
-    Sink.foldLeft(init)(onNext, onComplete, onError)(builder, ec)
+  def foldLeft[Super >: Out, Res, State](state: State)(onNext: Func[(Super, State), State], onComplete: Func[State, Res],
+                                                       onError: Func[Throwable, Unit] = Func.nop)
+                                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
+    val sink = Sink.foldLeft[Super, Res, State](state)(onNext, onComplete, onError)(builder, ec)
+    to(sink)
+  }
 
-  def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
-                       (implicit cbf: CanBuildFrom[Nothing, In, M[In]],
-                        builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] =
-    Sink.collect(onError)(cbf, builder)
+  def collect[Super >: Out, M[_]](onError: Func[Throwable, Unit] = Func.nop)
+                                 (implicit cbf: CanBuildFrom[Nothing, Super, M[Super]],
+                                  builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, M[Super]] = {
+    val collector = Sink.collect(onError)(cbf, builder)
+    to(collector)
+  }
+
+  /** Collects to a List. Because generic arguments can't have default values, it's useful to have this overload without
+    * manually specifying the collection type every time.
+    */
+  def toList(onError: Func[Throwable, Unit] = Func.nop)
+            (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, List[Out]] = {
+    val collector = Sink.collect[Out, List](onError)
+    to(collector)
+  }
 
   // Shortcuts for Connector constructors
 
@@ -97,9 +113,6 @@ trait SourceOps[+Out] {
     to(splitter.inputs(0))
     splitter
   }
-
-  // TODO all these shortcut methods return a Foo[_ <: Out]. Can't we just make the actual case classes (Splitter etc)
-  // covariant instead?
 
   def scatter(outputCount: Int = 2)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[_ <: Out] = {

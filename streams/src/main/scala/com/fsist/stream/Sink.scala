@@ -4,7 +4,7 @@ import com.fsist.stream.run.{RunningStreamOutput, FutureStream, FutureStreamBuil
 import com.fsist.util.{SyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Future, ExecutionContext}
 
 import scala.language.higherKinds
 
@@ -26,9 +26,9 @@ private[stream] trait SinkBase[-In] extends Sink[In]
 sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   def build()(implicit ec: ExecutionContext): FutureStream = builder.run()
 
-  def run()(implicit ec: ExecutionContext): FutureStream = builder.run()
-
-  def runAndGet()(implicit ec: ExecutionContext): RunningStreamOutput[In, Res] = run()(ec)(this)
+  // TODO rename to something nicer
+  def buildAndGet()(implicit ec: ExecutionContext): RunningStreamOutput[In, Res] = build()(ec)(this)
+  def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 
   def consumer(): StreamConsumer[In, Res]
 }
