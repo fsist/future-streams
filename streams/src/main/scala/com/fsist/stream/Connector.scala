@@ -51,7 +51,10 @@ sealed trait Connector[-In, +Out] {
   */
 final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
                             (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+  require(outputCount > 0, "Must have at least one output")
+
   val inputs = Vector(ConnectorInput(this, 0))
+  def input = inputs(0)
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
 }
 
@@ -62,7 +65,10 @@ final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
   */
 final case class Scatterer[T](outputCount: Int)
                              (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+  require(outputCount > 0, "Must have at least one output")
+
   val inputs = Vector(ConnectorInput(this, 0))
+  def input = inputs(0)
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
 }
 
@@ -70,8 +76,11 @@ final case class Scatterer[T](outputCount: Int)
   * wait for an input if another input has data available. */
 final case class Merger[T](inputCount: Int)
                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+  require(inputCount > 0, "Must have at least one input")
+
   val inputs = for (index <- 0 until inputCount) yield ConnectorInput(this, index)
   val outputs = Vector(ConnectorOutput(this, 0))
+  def output = outputs(0)
 }
 
 object Connector {
