@@ -8,7 +8,9 @@ import scala.collection.immutable.{IndexedSeq, BitSet}
 
 sealed trait ConnectorEdge[-In, +Out] extends StreamComponent {
   def connector: Connector[In, Out]
+
   def index: Int
+
   def isInput: Boolean
 }
 
@@ -20,7 +22,7 @@ final case class ConnectorInput[-In, +Out](connector: Connector[In, Out], index:
 }
 
 final case class ConnectorOutput[-In, +Out](connector: Connector[In, Out], index: Int)
-                                          (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
+                                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
   extends SourceBase[Out] with ConnectorEdge[In, Out] {
 
   override def isInput: Boolean = false
@@ -33,7 +35,9 @@ final case class ConnectorOutput[-In, +Out](connector: Connector[In, Out], index
   */
 sealed trait Connector[-In, +Out] {
   def inputs: IndexedSeq[ConnectorInput[In, Out]]
+
   def outputs: IndexedSeq[ConnectorOutput[In, Out]]
+
   def edges: IndexedSeq[ConnectorEdge[In, Out]] = inputs ++ outputs
 
   def isSingleInput: Boolean = inputs.length == 1
@@ -51,6 +55,17 @@ final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
 }
 
+/** Distributes data from one input to several outputs in parallel.
+  *
+  * Each output is driven asynchronously. For each input element, the first available output is picked. If all outputs
+  * are busy when an input element arrives, we wait for any output to become available.
+  */
+final case class Scatterer[T](outputCount: Int)
+                             (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+  val inputs = Vector(ConnectorInput(this, 0))
+  val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
+}
+
 /** Merges data from several inputs to one output. Ordering is not strictly guaranteed, but the connector will not
   * wait for an input if another input has data available. */
 final case class Merger[T](inputCount: Int)
@@ -59,21 +74,22 @@ final case class Merger[T](inputCount: Int)
   val outputs = Vector(ConnectorOutput(this, 0))
 }
 
-// NOTES: for a many-to-many Connector, just use a Merger followed by a Splitter.
-// TODO A parallelizing connector (where multiple outputs are exercised in parallel) is not implemented yet.
-
 object Connector {
-  def split[T](outputCount: Int, outputChooser: Func[T, BitSet]): Splitter[T] = Splitter(outputCount, outputChooser)
+  def split[T](outputCount: Int, outputChooser: Func[T, BitSet])
+              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
 
   /** Duplicates the input to each output. */
-  def tee[T](outputCount: Int = 2): Splitter[T] = {
-    val fullBitset = BitSet(0 until outputCount : _*)
+  def tee[T](outputCount: Int = 2)
+            (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = {
+    val fullBitset = BitSet(0 until outputCount: _*)
     Splitter(outputCount, (t: T) => fullBitset)
   }
 
-  /** Distribute the input among outputs in a round-robin fashion */
-  def roundRobin[T](outputCount: Int = 2): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet]{
+  /** Distributes the input among outputs in a round-robin fashion */
+  def roundRobin[T](outputCount: Int = 2)
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet] {
     private var next = 0
+
     override def apply(a: T): BitSet = {
       val ret = BitSet(next)
       next += 1
@@ -82,6 +98,11 @@ object Connector {
     }
   })
 
-  def merge[T](inputCount: Int): Merger[T] = Merger(inputCount)
+  def merge[T](inputCount: Int = 2)
+              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Merger[T] = Merger(inputCount)
+
+  /** Distributes the input among outputs in parallel, picking the first free output every time. */
+  def scatter[T](outputCount: Int = 2)
+                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
 }
 

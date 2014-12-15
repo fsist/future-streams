@@ -14,6 +14,9 @@ import scala.language.higherKinds
   */
 trait SourceOps[+Out] {
   self: Source[Out] =>
+
+  // TODO copy scaladocs
+
   // These are just aliases for `connect`
   def to[Super >: Out](sink: Sink[Super]): sink.type = connect(sink)
 
@@ -21,34 +24,40 @@ trait SourceOps[+Out] {
 
   // Shortcuts for Transform constructors
 
-  def map[Next](mapper: Out => Next): Source[Next] = {
+  def map[Next](mapper: Out => Next)
+               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] = {
     val tr = Transform.map(mapper)
     transform(tr)
   }
 
-  def filter(filter: Out => Boolean)(implicit ec: ExecutionContext): Source[Out] = {
+  def filter(filter: Out => Boolean)
+            (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] = {
     val tr = Transform.filter(filter)
     transform(tr)
   }
 
   // Shortcuts for Sink constructors
 
-  def foreach[Super >: Out](func: Super => Unit): StreamOutput[Super, Unit] = {
+  def foreach[Super >: Out](func: Super => Unit)
+                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Unit] = {
     val output = Sink.foreach(func)
     to(output)
   }
 
-  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res): StreamOutput[Super, Res] = {
+  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res)
+                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete)
     to(output)
   }
 
-  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res, onError: Throwable => Unit): StreamOutput[Super, Res] = {
+  def foreach[Super >: Out, Res](func: Super => Unit, onComplete: Unit => Res, onError: Throwable => Unit)
+                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)
     to(output)
   }
 
-  def foreachAsync[Super >: Out](func: Super => Future[Unit]): StreamOutput[Super, Unit] = {
+  def foreachAsync[Super >: Out](func: Super => Future[Unit])
+                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Unit] = {
     val output = Sink.foreach(AsyncFunc(func))
     to(output)
   }
@@ -63,23 +72,36 @@ trait SourceOps[+Out] {
                         builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] =
     Sink.collect(onError)(cbf, builder)
 
-    // Shortcuts for Connector constructors
+  // Shortcuts for Connector constructors
 
-  def split(outputCount: Int, outputChooser: Func[Out, BitSet]): Splitter[_ <: Out] = {
+  def split(outputCount: Int, outputChooser: Func[Out, BitSet])
+           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, outputChooser)
     to(splitter.inputs(0))
     splitter
   }
 
-  def tee(outputCount: Int = 2): Splitter[_ <: Out] = {
+  def tee(outputCount: Int = 2)
+         (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.tee[Out](outputCount)
     to(splitter.inputs(0))
     splitter
   }
 
-  def roundRobin(outputCount: Int = 2): Splitter[_ <: Out] = {
+  def roundRobin(outputCount: Int = 2)
+                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.roundRobin[Out](outputCount)
     to(splitter.inputs(0))
     splitter
+  }
+
+  // TODO all these shortcut methods return a Foo[_ <: Out]. Can't we just make the actual case classes (Splitter etc)
+  // covariant instead?
+
+  def scatter(outputCount: Int = 2)
+             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[_ <: Out] = {
+    val scatterer = Connector.scatter[Out](outputCount)
+    to(scatterer.inputs(0))
+    scatterer
   }
 }

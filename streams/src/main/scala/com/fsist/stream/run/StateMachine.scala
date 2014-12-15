@@ -2,7 +2,7 @@ package com.fsist.stream.run
 
 import akka.http.util.FastFuture
 import com.fsist.stream._
-import com.fsist.util.concurrent.BoundedAsyncQueue
+import com.fsist.util.concurrent.{AsyncQueue, BoundedAsyncQueue}
 import com.fsist.util.{Func, AsyncFunc, SyncFunc}
 import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging
@@ -14,15 +14,17 @@ import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
 
-// TODO NOTE error handling is global for the entire graph. State machines no longer call downstream consumer.onError.
+// NOTE error handling is global for the entire graph. State machines no longer call downstream consumer.onError.
 // When the graph fails, graph.failGraph calls the onError of all uesr components that have one, concurrently with one
 // another, and concurrently with any ongoing calls to onNext or onComplete. However, if onComplete has finished
 // successfully, onError will not be called for that component.
-
+//
 // failGraph fails the completionPromise of each component. Each state machine checks if the promise has been failed
 // before calling onNext or onComplete; if yes, it aborts.
 
-/** Note: implementations are mutable! */
+// Note: implementations are mutable!
+
+// TODO make Consumer a trait, and replace instantiations with implementations where possible to save the cost of extra Funcs
 
 /** A simplified StreamConsumer, without onError and without a Result. Exposed by each state machine with an input. */
 private[run] case class Consumer[-In](onNext: Func[In, Unit], onComplete: Func[Unit, Unit])
@@ -100,6 +102,15 @@ private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
   type TOut = Out
   // Defined to solve some type issues, see https://groups.google.com/forum/#!topic/scala-user/aN-o7ZaNwPo
   var next: Option[StateMachineWithInput[TOut]] = None // Set to Some after construction
+}
+
+private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachine[T] {
+  type TT = T
+
+  def connector: Connector[_, T]
+
+  // Initialized by the stream builder before running
+  val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to connector.outputs.size) map (_ => None): _*)
 }
 
 private[run] object StateMachine extends Logging {
@@ -276,14 +287,9 @@ private[run] object StateMachine extends Logging {
     }
   }
 
-  class SplitterMachine[T](val splitter: Splitter[T], val graph: GraphOps)
-                          (implicit val ec: ExecutionContext) extends ConnectorMachine[T] {
-    type TT = T
-
-    // Initialized by the stream builder before running
-    val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to splitter.outputCount) map (_ => None): _*)
-
-    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, splitter)
+  class SplitterMachine[T](val connector: Splitter[T], val graph: GraphOps)
+                          (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
+    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
@@ -297,7 +303,7 @@ private[run] object StateMachine extends Logging {
         builder.result()
       }
 
-      val onNext: Func[T, Unit] = splitter.outputChooser match {
+      val onNext: Func[T, Unit] = connector.outputChooser match {
         case syncf: SyncFunc[T, BitSet] => Func.flatten(Func((t: T) => {
           val outputs = chooseOutputs(syncf(t))
           Func.tee(outputs: _*)
@@ -314,6 +320,46 @@ private[run] object StateMachine extends Logging {
       Consumer(onNext, onComplete)
     }
   }
+
+  class ScattererMachine[T](val connector: Scatterer[T], val graph: GraphOps)
+                          (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
+    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, connector)
+
+    override def userOnError: Func[Throwable, Unit] = Func.nop
+
+    override lazy val consumer: Consumer[T] = {
+      val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
+
+      // Naive implementation, could probably be optimized
+      // The `free` queue holds all consumers that are available at that moment
+
+      val free = new AsyncQueue[Consumer[T]]()
+      for (output <- outputs) free.enqueue(output.consumer)
+
+      val onNext = new AsyncFunc[T, Unit] {
+        private def dispatchAndRequeue(t: T, consumer: Consumer[T]): Future[Unit] = consumer.onNext match {
+          case syncf: SyncFunc[T, Unit] =>
+            syncf(t)
+            free.enqueue(consumer)
+            futureSuccess
+          case asyncf: AsyncFunc[T, Unit] =>
+            new FastFuture(asyncf(t)).map(_ => free.enqueue(consumer))
+        }
+
+        override def apply(t: T)(implicit ec: ExecutionContext): Future[Unit] = {
+          val fut = new FastFuture(free.dequeue())
+          fut.flatMap(dispatchAndRequeue(t, _))
+        }
+      }
+
+      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete))
+
+      Consumer(onNext, onComplete)
+    }
+  }
 }
 
 // TODO once and for all: when do we use FastFuture.map vs. writing out `if future.isCompleted ...` manually?
+
+// TODO should we use the newly fixed async/await, together with FastFuture, instead of Func?
+

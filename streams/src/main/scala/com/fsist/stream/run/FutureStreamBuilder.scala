@@ -123,6 +123,7 @@ class FutureStreamBuilder extends Logging {
       allConnectors.map({
         case merger: Merger[_] => (merger, new MergerMachine(merger, graphOps))
         case splitter: Splitter[_] => (splitter, new SplitterMachine(splitter, graphOps))
+        case scatterer: Scatterer[_] => (scatterer, new ScattererMachine(scatterer, graphOps))
       }).toMap
 
     // All component types other than connectors
@@ -162,10 +163,10 @@ class FutureStreamBuilder extends Logging {
         // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
         case output: ConnectorOutput[_, _] if output.connector.outputs.size > 1 =>
           allMachines(from) match {
-            case splitterMachine: SplitterMachine[_] =>
+            case machine: ConnectorMachineWithOutputs[_] =>
               val outputIndex = output.connector.outputs.indexOf(output)
-              val outputMachine = sinkMachines(to).asInstanceOf[StateMachineWithInput[splitterMachine.TT]]
-              splitterMachine.consumers(outputIndex) = Some(outputMachine)
+              val outputMachine = sinkMachines(to).asInstanceOf[StateMachineWithInput[machine.TT]]
+              machine.consumers(outputIndex) = Some(outputMachine)
             case other => throw new IllegalArgumentException(s"No others allowed")
           }
         case _ =>

@@ -8,7 +8,7 @@ import scala.concurrent.Future
   *
   * StreamComponent: base trait of everything linked to a StreamBuilder
   * Source: producer. Implementations don't provide a single typed function `produce` to allow specializations to
-  *                   avoid the overhead of wrapping every element in Option to indicate EOF. TODO maybe change this?
+  *                   avoid the overhead of wrapping every element in Option to indicate EOF.
   * Sink: consumer. Implementations provide the onNext/onComplete/onError triplet.
   * Connector: has >=1 sources and >=1 sinks and routing logic.
   * Transform: a generalized source -> source mapping.
