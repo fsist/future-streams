@@ -362,7 +362,7 @@ private[run] object StateMachine extends Logging {
         }
       }
 
-      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete))
+      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete) : _*)
 
       Consumer(onNext, onComplete)
     }
