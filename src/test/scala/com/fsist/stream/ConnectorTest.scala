@@ -1,7 +1,8 @@
 package com.fsist.stream
 
-import com.fsist.util.concurrent.AsyncFunc
+import com.fsist.util.concurrent.{Func, AsyncFunc}
 import org.scalatest.FunSuite
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
 
 import scala.collection.immutable
 import scala.collection.immutable.BitSet
@@ -179,5 +180,37 @@ class ConnectorTest extends FunSuite with StreamTester {
     val result = gatherer.output.toList().buildResult().futureValue
 
     assert(result.sorted == range, "Scatter-gather")
+  }
+
+  test("Splitter completion promise is fulfilled") {
+    val source = Source(1, 2, 3)
+    val connector = source.roundRobin(2)
+    for (output <- connector.outputs)
+      output.foreach(Func.nop)
+
+    val stream = source.builder.run()
+
+    stream(connector).completion.futureValue(Timeout(1.second))
+  }
+
+  test("Scatterer completion promise is fulfilled") {
+    val source = Source(1, 2, 3)
+    val connector = source.scatter(2)
+    for (output <- connector.outputs)
+      output.foreach(Func.nop)
+
+    val stream = source.builder.run()
+
+    stream(connector).completion.futureValue(Timeout(1.second))
+  }
+
+  test("Merger completion promise is fulfilled") {
+    val merger = Merger[Int](2)
+    for (input <- merger.inputs)
+      Source(1, 2, 3).to(input)
+
+    val stream = merger.output.foreach(Func.nop).build()
+
+    stream(merger).completion.futureValue(Timeout(1.second))
   }
 }

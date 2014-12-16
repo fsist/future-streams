@@ -1,5 +1,7 @@
 TODOs:
 
+- Add most/all standard methods from TraversableOnce (note that it shows how to write toList as a call to collect using
+  @uncheckedVariance), and from Iterable and Seq.
 - Replace SourceInput contract for NoSuchElementException with a custom EofException
 - Add pusher/puller, and convenience methods to interface multiple streams 
 - Remove StreamConsumer - it's not used
@@ -9,7 +11,6 @@ TODOs:
 - Decide on FastFuture vs async/await vs Func
 - Fix all TODO comments
 - Write out exception semantics and make sure they are followed.
-- Address cancellation (at least in docs)
 - Write tests
 - More combinators
 - AsyncBuffer
@@ -17,12 +18,8 @@ TODOs:
   completed. Or maybe we should really throw a DownstreamDeclaredEOF subscription to upstream - but then would upstream
   user code need to have a chance to do something about it, as with onError?
 - Copy to main project (presumably in a different namespace like streams2 for the duration of the migration)
-- Note that we DO NOT support reuse of stream component models; currently such reuse will always fail because the node
-  cannot be disconnected from all the nodes it was already connected to in the old graph.
-  
-  Also, many standard combinators are currently stateful. For instance Sink.collect creates a single builder to collect
-  the data, which would be reused if the component or whole graph was re-run. It currently has no choice: SimpleOutput
-  takes a StreamConsumer implementation, not a creator-of-a-consumer as would be the case in akka-streams.
+- Maybe make Consumer a trait, and replace instantiations with implementations where possible to save the cost of extra Funcs
+- Add build* methods on stream components other than Sink
 
 # future-streams
 

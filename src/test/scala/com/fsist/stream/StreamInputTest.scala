@@ -2,6 +2,8 @@ package com.fsist.stream
 
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.concurrent.duration._
 
 class StreamInputTest extends FunSuite with StreamTester {
   test("IteratorSource") {
@@ -26,5 +28,11 @@ class StreamInputTest extends FunSuite with StreamTester {
     val source = Source.generate(Func(iter.next()))
     val result = source.toList().buildResult().futureValue
     assert(result == range, "All items were generated")
+  }
+
+  test("StreamInput completion promise is fulfilled") {
+    val source = Source(1, 2, 3)
+    val stream = source.foreach(Func.nop).build()
+    stream(source).completion.futureValue(Timeout(1.second))
   }
 }

@@ -2,6 +2,8 @@ package com.fsist.stream
 
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.concurrent.duration._
 
 class StreamOutputTest extends FunSuite with StreamTester {
   test("SimpleOutput") {
@@ -43,5 +45,11 @@ class StreamOutputTest extends FunSuite with StreamTester {
     val data = 1 to 10
     val result = Source.from(data).collect[Int, Vector]().buildResult().futureValue
     assert(result.isInstanceOf[Vector[Int]] && result == data.to[Vector], "Collected in a Vector")
+  }
+
+  test("StreamOutput completion promise is fulfilled") {
+    val sink = Sink.foreach[Int, Unit](Func.nop)
+    val stream = Source(1, 2, 3).to(sink).build()
+    stream(sink).completion.futureValue(Timeout(1.second))
   }
 }

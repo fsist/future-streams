@@ -106,14 +106,14 @@ object Connector {
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
 
   /** Duplicates the input to each output. */
-  def tee[T](outputCount: Int = 2)
+  def tee[T](outputCount: Int)
             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = {
     val fullBitset = BitSet(0 until outputCount: _*)
     Splitter(outputCount, (t: T) => fullBitset)
   }
 
   /** Distributes the input among outputs in a round-robin fashion */
-  def roundRobin[T](outputCount: Int = 2)
+  def roundRobin[T](outputCount: Int)
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet] {
     private var next = 0
 
@@ -125,11 +125,11 @@ object Connector {
     }
   })
 
-  def merge[T](inputCount: Int = 2)
+  def merge[T](inputCount: Int)
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Merger[T] = Merger(inputCount)
 
   /** Distributes the input among outputs in parallel, picking the first free output every time. */
-  def scatter[T](outputCount: Int = 2)
+  def scatter[T](outputCount: Int)
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
 }
 

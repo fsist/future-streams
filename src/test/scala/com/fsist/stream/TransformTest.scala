@@ -2,6 +2,8 @@ package com.fsist.stream
 
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
+import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.concurrent.duration._
 
 class TransformTest extends FunSuite with StreamTester {
   test("SingleTransform") {
@@ -50,5 +52,17 @@ class TransformTest extends FunSuite with StreamTester {
     val result = Source.from(range).drop(5).toList().buildResult().futureValue
     val expected = range.drop(5)
     assert(result == expected, "Skipped correctly")
+  }
+
+  test("SingleTransform completion promise is fulfilled") {
+    val tr = Transform.map[Int, Int](Func.pass)
+    val stream = Source(1, 2, 3).to(tr).foreach(Func.nop).build()
+    stream(tr).completion.futureValue(Timeout(1.second))
+  }
+
+  test("MultiTransform completion promise is fulfilled") {
+    val tr = Transform.flatMap((i: Int) => Seq(i))
+    val stream = Source(1, 2, 3).to(tr).foreach(Func.nop).build()
+    stream(tr).completion.futureValue(Timeout(1.second))
   }
 }

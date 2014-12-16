@@ -25,8 +25,6 @@ import scala.util.control.NonFatal
 
 // Note: implementations are mutable!
 
-// TODO make Consumer a trait, and replace instantiations with implementations where possible to save the cost of extra Funcs
-
 /** A simplified StreamConsumer, without onError and without a Result. Exposed by each state machine with an input. */
 private[run] case class Consumer[-In](onNext: Func[In, Unit], onComplete: Func[Unit, Unit])
 
@@ -191,17 +189,14 @@ private[run] object StateMachine extends Logging {
       // We rely on the previous component not calling our own onNext/onComplete if we fail the graph before returning.
 
       val onNext = userOnNext.composeFailure(graph.failGraph)
-      val onComplete = userOnComplete.compose(SyncFunc { res =>
+      val onComplete = userOnComplete.compose(SyncFunc[Res, Unit] { res =>
         resultPromise.trySuccess(res)
         completionPromise.trySuccess(())
-        ()
       }).composeFailure(graph.failGraph)
 
       Consumer(onNext, onComplete)
     }
   }
-
-  // TODO TransformMachine and maybe some other machines too don't complete their completionPromise!
 
   class TransformMachine[In, Out](val transform: Transform[In, Out], val graph: GraphOps)
                                  (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
@@ -218,16 +213,19 @@ private[run] object StateMachine extends Logging {
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
+      val afterCompleting = Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
+
       transform match {
         case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
           val onNext = trOnNext ~> consumerOnNext composeFailure (graph.failGraph)
-          val onComplete = trOnComplete ~> consumerOnComplete ~> SyncFunc[Any, Unit](_ => ()) composeFailure (graph.failGraph)
+          val onComplete = trOnComplete ~> consumerOnComplete ~> afterCompleting
 
           Consumer(onNext, onComplete)
 
         case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
           val onNext = trOnNext ~> Func.foreach(consumer.onNext)
-          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete ~> afterCompleting
+
           Consumer(onNext, onComplete)
       }
     }
@@ -262,6 +260,8 @@ private[run] object StateMachine extends Logging {
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
+      val fullOnComplete = consumerOnComplete ~> Func(completionPromise.success(())) ~> Func(()) composeFailure(graph.failGraph)
+
       def loopStep(): Future[Unit] = queue.dequeue() flatMap { item =>
         throwIfFailed
 
@@ -277,7 +277,7 @@ private[run] object StateMachine extends Logging {
           case None =>
             val counted = inputsTerminated.incrementAndGet()
             if (counted == merger.inputCount) {
-              consumerOnComplete match {
+              fullOnComplete match {
                 case syncf: SyncFunc[Unit, Unit] =>
                   syncf(())
                   futureSuccess
@@ -324,14 +324,15 @@ private[run] object StateMachine extends Logging {
         }))
       }
 
-      val onComplete = Func.tee(outputs.map(_.consumer.onComplete) : _*)
+      val onComplete = Func.tee(outputs.map(_.consumer.onComplete): _*) ~>
+        Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
 
       Consumer(onNext, onComplete)
     }
   }
 
   class ScattererMachine[T](val connector: Scatterer[T], val graph: GraphOps)
-                          (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
+                           (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
     override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
@@ -361,11 +362,13 @@ private[run] object StateMachine extends Logging {
         }
       }
 
-      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete) : _*)
+      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete): _*) ~>
+        Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
 
       Consumer(onNext, onComplete)
     }
   }
+
 }
 
 // TODO once and for all: when do we use FastFuture.map vs. writing out `if future.isCompleted ...` manually?

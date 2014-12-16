@@ -81,4 +81,6 @@ object Sink {
       override def onComplete: Func[Unit, M[In]] = m.result()
     })
   }
+
+  List(1,2,3).sum
 }
