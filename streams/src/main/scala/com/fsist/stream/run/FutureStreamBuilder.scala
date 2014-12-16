@@ -185,7 +185,7 @@ class FutureStreamBuilder extends Logging {
       }
     }
 
-    new FutureStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running))
+    new FutureStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running), graphOps)
   }
 
   private def validateBeforeBuilding(state: State): Unit = {
