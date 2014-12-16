@@ -1,5 +1,6 @@
 TODOs:
 
+- Replace SourceInput contract for NoSuchElementException with a custom EofException
 - Add pusher/puller, and convenience methods to interface multiple streams 
 - Remove StreamConsumer - it's not used
 - Probably make some things in the run.* interfaces private
@@ -44,7 +45,7 @@ that code.
 
 ## High-level description
 
-Note: the Scaladoc for the two main types, such as `Source` and `Sink`, is the authoritative reference for details of
+Note: the Scaladoc for the main types, such as `Source` and `Sink`, is the authoritative reference for details of
 behavior. This is only a summary.
 
 A stream contains one or more `StreamInput`s and one or more `StreamOutput`s, and zero or more `Transform`ers and 
@@ -63,11 +64,10 @@ There are four main node types:
     connection.
 2.  A `StreamOutput[In] extends Sink[In]` consumes stream elements. It has no downstream connection.
 3.  A `Transform[In, Out] extends Sink[In] with Source[Out]` transforms the stream in some way. Output elements
-    don't have to correspond in number to input elements.
+    don't always correspond one-to-one to input elements.
 4.  A `Connector[In, Out]` is a special node type which can connect to more than one upstream or downstream node.
     This serves to fan-out or fan-in stream connections. The Connector doesn't extend `Source[In] with Sink[Out]`
-    because it actually has multiple sources and sinks available as methods. These sources and sinks implement the
-    special traits `ConnectorInput[In] extends Sink[In]` and `ConnectorOutput[Out] extends Source[Out]`.
+    because it isn't a single Source or Sink; instead it makes multiple Sources and Sinks available as methods.
     
 ### Modeling and running the stream
 
@@ -87,19 +87,20 @@ the EOF signal. This happens when the component's `onComplete` handler (which ca
 and the component has finished passing the EOF signal downstream.
  
 `RunningStream` contains methods (overloads of `get` and `apply`) which return the `RunningStreamComponent` instance
-corresponding to the stream component model instance passed in.
+corresponding to the model case class instance passed in.
 
 In practice, the timing of the completion of different components in the same stream is not intended to be a useful,
-strongly specified kind of behavior. In particular, downstream components may complete before or after upstream ones.
+strongly specified kind of behavior. In particular, downstream components may complete before or after upstream ones,
+because some component implementation may wait for their downstream to complete before completing themselves.
 
-The whole `RunningStream` also has a single completion event (`RunningStream.completion: Future[Unit]`) which completes
+The whole `RunningStream` also has a global completion event (`RunningStream.completion: Future[Unit]`) which completes
 when all components have completed.
 
-#### No support for reuse
+#### Stream components cannot be reused
 
-Although stream component model types are case classes, they are not necessarily immutable. In general, they *cannot* be 
-reused in other streams, and the same stream model cannot be built and run more than once. Although this is a desirable 
-feature (which exists in akka-streams), it would take too much effort to implement. 
+Although stream component model types are case classes, they *cannot* be reused in other streams, and the same stream 
+model cannot be built and run more than once. Although this is a desirable feature (which exists in akka-streams), it 
+would take too much effort to implement, even though the design itself might be simple. 
 
 ### Stream results
 
@@ -116,11 +117,11 @@ A stream component is considered to fail if any of its user-provided onXxx metho
 Future.
 
 If any stream component fails, the whole stream will immediately fail as well; failures cannot be compartmentalized.
-Components which want to recover from failures must do so inside their implementations.
+Components which want to recover from failures must do so inside their implementation.
 
 When a stream fails, the `onError` callbacks of all components are called in parallel. This is *concurrent* with any 
-ongoing calls to their onNext and onComplete methods. In fact, onNext and/or onComplete may be called again after
-onError has been called (or while it is running), due to race conditions.
+ongoing calls to their `onNext` and `onComplete` methods. In fact, `onNext` and/or `onComplete` may be called again after
+`onError` has been called (or while it is running), due to race conditions.
 
 However, if a component has already completed (`onComplete` has finished and the `completion` promise has been fulfilled),
 then `onError` is guaranteed not to be called for that component.
@@ -141,7 +142,9 @@ A simple processing pipeline:
     Source.from(1 to 100).map(_ + 1).foreach(println(_)).buildResult()
     
 This returns a `Future[Unit]` which is the result of the `StreamOutput` that corresponds to the `foreach` statement.
-It will complete when all 100 elements have been printed.
+It will complete when all 100 elements have been printed. The whole stream runs synchronously, because it was built
+from synchronous components, so the `println(_)` function will see the `map(_+1)` function on its calling stack.
+However, the stream as a whole still runs in a Future.
 
 Here is a more complex graph, which also demonstrates combining stream parts defined separately:
     
@@ -238,7 +241,6 @@ detail about the old version, these are the major *design* differences:
     in the library core (in subclasses of `StateMachine`). Other abstractions are built on top of that in user code.
     This contrasts with the v1 model, where the only first-class types were `Source` and `Sink`, and all implementations
     had the same status.
-    
     This allows us keep the core implementation simple, fast and correct. The variety of component implementations in v1
     made the library unmanageable.
     
