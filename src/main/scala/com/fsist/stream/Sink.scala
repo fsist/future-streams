@@ -28,7 +28,6 @@ private[stream] trait SinkBase[-In] extends Sink[In]
 sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
 
-  // TODO rename to something nicer
   def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
   def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 

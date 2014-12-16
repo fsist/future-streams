@@ -15,8 +15,6 @@ import scala.language.higherKinds
 trait SourceOps[+Out] {
   self: Source[Out] =>
 
-  // TODO link scaladocs
-
   // These are just aliases for `connect`
   def to(sink: Sink[Out]): sink.type = connect(sink)
 

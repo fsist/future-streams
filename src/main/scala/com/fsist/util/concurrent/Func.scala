@@ -200,9 +200,6 @@ object Func {
   }
 }
 
-// TODO whereever possible, replace SyncFunc.apply and AsyncFunc.apply with new (A)SyncFunc to replace extra function
-// objects (closures) with methods.
-
 trait SyncFunc[-A, +B] extends Func[A, B] {
   override def isSync: Boolean = true
 

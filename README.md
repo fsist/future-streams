@@ -20,6 +20,8 @@ TODOs:
 - Copy to main project (presumably in a different namespace like streams2 for the duration of the migration)
 - Maybe make Consumer a trait, and replace instantiations with implementations where possible to save the cost of extra Funcs
 - Add build* methods on stream components other than Sink
+- Replace calls to XxxFunc.apply with new XxxFunc implementations. This includes combinators in Func.scala as well as 
+  external uses.
 
 # future-streams
 
