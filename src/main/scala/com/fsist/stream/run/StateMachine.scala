@@ -371,7 +371,3 @@ private[run] object StateMachine extends Logging {
 
 }
 
-// TODO once and for all: when do we use FastFuture.map vs. writing out `if future.isCompleted ...` manually?
-
-// TODO should we use the newly fixed async/await, together with FastFuture, instead of Func?
-

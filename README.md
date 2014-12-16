@@ -8,7 +8,7 @@ TODOs:
 - Probably make some things in the run.* interfaces private
 - Rewrite README
 - Write all scaladocs
-- Decide on FastFuture vs async/await vs Func
+- Decide on FastFuture vs async/await vs Func vs branching manually on Future.isCompleted
 - Fix all TODO comments
 - Write out exception semantics and make sure they are followed.
 - Write tests
