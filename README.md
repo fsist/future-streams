@@ -1,16 +1,26 @@
 TODOs:
 
-- Implement Connector
-- Document!
-- Write out exception semantics and make sure they are followed. Also, DownstreamFailedException seems superfluous?
-- Write test
+- Probably make some things in the run.* interfaces private
+- Rewrite README
+- Write all scaladocs
+- Decide on FastFuture vs async/await vs Func
+- Fix all TODO comments
+- Write out exception semantics and make sure they are followed.
+- Address cancellation (at least in docs)
+- Write tests
 - More combinators
-- ReactiveStreams converters
-- ReactiveStreams TCK
-- .onError, .onComplete combinators
 - AsyncBuffer
-- Connecting builders
-
+- Support `take` somehow. Maybe we can emit an EOF to downstream, and then not return from onNext until the stream is
+  completed. Or maybe we should really throw a DownstreamDeclaredEOF subscription to upstream - but then would upstream
+  user code need to have a chance to do something about it, as with onError?
+- Cleanup project structure: remove macros & bytestreams modules, remove dep on RS + TCK (no time to implement it)
+- Copy to main project (presumably in a different namespace like streams2 for the duration of the migration)
+- Note that we DO NOT support reuse of stream component models; currently such reuse will always fail because the node
+  cannot be disconnected from all the nodes it was already connected to in the old graph.
+  
+  Also, many standard combinators are currently stateful. For instance Sink.collect creates a single builder to collect
+  the data, which would be reused if the component or whole graph was re-run. It currently has no choice: SimpleOutput
+  takes a StreamConsumer implementation, not a creator-of-a-consumer as would be the case in akka-streams.
 
 # future-streams
 
@@ -18,9 +28,10 @@ A `scala.concurrent.Future`-based implementation of [Reactive Streams](http://ww
 
 ## Purpose and design constraints
 
-I wrote this library because I needed a scala model for streams with backpressure and transformations. I couldn't wait
-for other implementations of Reactive Streams, like [akka-streams](http://typesafe.com/activator/template/akka-stream-scala), 
-to make a production-quality release.
+I wrote this library because I needed a scala model for streams with backpressure and transformations, and the other 
+implementations of Reactive Streams, like [akka-streams](http://typesafe.com/activator/template/akka-stream-scala), 
+weren't production-ready. Akka-streams should be ready quite soon now, and then this library will be obsolete;
+I expect to switch to using akka-streams myself at some future date.
 
 I chose to implement on top of the abstraction of Futures, because they are already used in many other libraries and 
 are a good basis for interoperability of asynchronous code outside of Akka Actors.
@@ -29,13 +40,14 @@ I chose to implement Reactive Streams, to be compatible with other libraries and
 codebase to another library in the future. The design and implementation is guided by Reactive Streams, rather than
 being some other more complex design that can be converted to/from Reactive Streams interfaces when necessary.
  
-The library implements the Reactive Streams API 0.4, and will support newer versions when they are released. It passes
-most of the 0.4.0 TCK, should soon pass all of it, and should interoperate cleanly 
-with other implementations, although I haven't tested that yet. Once such other implementations are stable, it may
-make sense for me as well for others to switch to another implementation. There's nothing this library does that could
-not *in principle* be done with akka-streams, but that does not mean it *will* be done there.
+The library implements the Reactive Streams API 1.0-RC1, and will support newer versions when they are released. It should
+pass the TCK and interoperate cleanly with other implementations, although I haven't tested that yet. 
 
 ## Description without reference to Reactive Streams ##
+
+This should be read in tandem with the Scaladoc of the main types, such as `Source` and `Sink`.
+
+
 
 The Scaladoc for the two main types - `Source` and `Sink` - is the master reference. This is only a summary.
 
@@ -103,6 +115,23 @@ It also adds some features:
    This may be `Unit` for sinks that have side effects, or it may be something else, such as a hash of all the data
    passed in. The calculated result is available from `Sink.result: Future[R]`.
    Since a `Pipe` is also a `Sink`, pipe segments can also calculate intermediate results.
+   
+## Differences from the previous version of this library
+
+This is the second version of future-streams, and is a complete redesign from the ground up. Without going into too much
+detail about the old version, these are the major *design* differences:
+
+1. Not every stream component implements the public Reactive Streams interfaces (Publisher/Subscriber); only explicitly
+   constructed converters do (e.g. `Source.fromPublisher`). This allows the internal communication between stream
+   components to be much faster, and to have slightly different semantics from RS.
+2. Synchronous functions and stream components receive first-class support, and are called and combined synchronously, 
+   without the expense of scheduling Futures.
+3. There is a separate model or blueprint API (`Source`, `Sink`, `Transform`, `Connector`) and a runtime API 
+   (`StateMachine`, `FutureStream`), bridged by the `FutureStreamBuilder`. This is done for some of the same reasons
+   as the materialization phase in akka-streams: to allow models to use the expected variance (e.g. `Source[+Out]`),
+   and to reuse models where appropriate.
+4. There is no explicit support for cancellation. Asynchronous cancellation with e.g. a CancelToken can be achieved by 
+   failing the stream from outside.
    
 ## Typical use
 

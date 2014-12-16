@@ -1,7 +1,0 @@
-apply from: '../build-scalaCompilerPlugin.gradle'
-
-dependencies {
-  dependOnProject(project, 'macros')
-  
-  compile 'com.assembla.scala-incubator:graph-core_2.10:1.9.0'
-}

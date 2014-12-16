@@ -1,6 +1,0 @@
-apply from: '../build-scalaCompilerPlugin.gradle'
-
-dependencies {
-  // NOTE the version should be the same as for the paradise compiler plugin defined in the top level build.gradle
-  compile 'org.scalamacros:quasiquotes_2.10:2.0.1'
-}
