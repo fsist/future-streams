@@ -26,8 +26,6 @@ version = '0.7'
 dependencies {
   compile 'org.scala-lang:scala-library:2.10.4'
   compile 'org.scala-lang:scala-reflect:2.10.4'
-
-  // TODO: compile time only
   compile 'org.scala-lang:scala-compiler:2.10.4'
 
   compile 'com.typesafe:scalalogging-slf4j_2.10:1.0.1'
