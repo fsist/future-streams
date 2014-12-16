@@ -337,6 +337,15 @@ object AsyncFunc {
       case NonFatal(e) => Future.failed(e)
     }
   }
+
+  implicit def apply[B](f: => Future[B]): AsyncFunc[Unit, B] = new AsyncFunc[Unit, B] {
+    override def apply(a: Unit)(implicit ec: ExecutionContext): Future[B] = try {
+      f
+    }
+    catch {
+      case NonFatal(e) => Future.failed(e)
+    }
+  }
 }
 
 /** An async func sandwiched between two sync ones. Enables efficient composing of sync funcs around async ones. */
