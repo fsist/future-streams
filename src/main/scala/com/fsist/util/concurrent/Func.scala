@@ -72,7 +72,7 @@ sealed trait Func[-A, +B] {
 object Func {
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = SyncFunc(f)
 
-  implicit def apply[B](f: => B): SyncFunc[Unit, B] = SyncFunc(f)
+  implicit def apply[B](f: => B): SyncFunc[Any, B] = SyncFunc(f)
 
   private[util] val futureSuccess = Future.successful(())
 
@@ -269,8 +269,8 @@ object SyncFunc {
     override def apply(a: A): B = f(a)
   }
 
-  implicit def apply[B](f: => B): SyncFunc[Unit, B] = new SyncFunc[Unit, B] {
-    override def apply(a: Unit): B = f
+  implicit def apply[B](f: => B): SyncFunc[Any, B] = new SyncFunc[Any, B] {
+    override def apply(a: Any): B = f
   }
 }
 
@@ -338,8 +338,8 @@ object AsyncFunc {
     }
   }
 
-  implicit def apply[B](f: => Future[B]): AsyncFunc[Unit, B] = new AsyncFunc[Unit, B] {
-    override def apply(a: Unit)(implicit ec: ExecutionContext): Future[B] = try {
+  implicit def apply[B](f: => Future[B]): AsyncFunc[Any, B] = new AsyncFunc[Any, B] {
+    override def apply(a: Any)(implicit ec: ExecutionContext): Future[B] = try {
       f
     }
     catch {
