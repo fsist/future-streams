@@ -119,7 +119,7 @@ private[run] object StateMachine extends Logging {
 
   class InputMachine[Out](val input: StreamInput[Out], val graph: GraphOps)
                          (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
-    override val running: RunningStreamInput[Out] = RunningStreamInput(completionPromise.future, input)
+    override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
 
     // Acquire copies of user functions
     val producer = input.producer
@@ -179,7 +179,7 @@ private[run] object StateMachine extends Logging {
       case NonFatal(e) => resultPromise.tryFailure(e)
     }
 
-    override val running: RunningStreamOutput[In, Res] = RunningStreamOutput(resultPromise.future)
+    override val running: RunningOutput[In, Res] = RunningOutput(resultPromise.future)
 
     // Acquire copies of user functions
     val (userOnNext, userOnComplete, userOnError) = {

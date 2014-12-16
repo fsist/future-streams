@@ -2,7 +2,7 @@ package com.fsist.stream
 
 import java.util.concurrent.atomic.AtomicReference
 
-import com.fsist.stream.run.RunningStreamOutput
+import com.fsist.stream.run.RunningOutput
 import com.fsist.util.Func
 import org.scalatest.FunSuite
 
@@ -30,7 +30,7 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     awaitFailure(stream.completion, "Stream should fail")
 
     for (fut <- stream.components.values.map(_.completion).toList :+ stream.completion :+
-      stream.components(sink).asInstanceOf[RunningStreamOutput[Int, Unit]].result) {
+      stream.components(sink).asInstanceOf[RunningOutput[Int, Unit]].result) {
 
       awaitFailure(fut, "Each future should fail")
       assert(fut.value == Some(Failure(err)), "Each future failed with the original exception")
@@ -54,7 +54,7 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     awaitFailure(stream.completion, "Stream should fail")
 
     for (fut <- stream.components.values.map(_.completion).toList :+ stream.completion :+
-      stream.components(sink).asInstanceOf[RunningStreamOutput[Int, Unit]].result) {
+      stream.components(sink).asInstanceOf[RunningOutput[Int, Unit]].result) {
 
       awaitFailure(fut, "Each future should fail")
       assert(fut.value == Some(Failure(err)), "Each future failed with the original exception")
@@ -89,8 +89,8 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     awaitFailure(stream.completion, "Stream should fail")
 
     for (fut <- stream.components.values.map(_.completion).toList :+ stream.completion :+
-      stream.components(sink1).asInstanceOf[RunningStreamOutput[Int, Unit]].result :+
-      stream.components(sink2).asInstanceOf[RunningStreamOutput[Int, Unit]].result) {
+      stream.components(sink1).asInstanceOf[RunningOutput[Int, Unit]].result :+
+      stream.components(sink2).asInstanceOf[RunningOutput[Int, Unit]].result) {
 
       awaitFailure(fut, "Each future should fail")
       assert(fut.value == Some(Failure(err)), "Each future failed with the original exception")
@@ -115,7 +115,7 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     stream.fail(err)
 
     for (fut <- stream.components.values.map(_.completion).toList :+ stream.completion :+
-      stream.components(sink).asInstanceOf[RunningStreamOutput[Int, Unit]].result) {
+      stream.components(sink).asInstanceOf[RunningOutput[Int, Unit]].result) {
 
       awaitFailure(fut, "Each future should fail")
       assert(fut.value == Some(Failure(err)), "Each future failed with the original exception")

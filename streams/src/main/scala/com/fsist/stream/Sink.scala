@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.stream.run.{RunningStreamOutput, FutureStream, FutureStreamBuilder}
+import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 import com.fsist.util.{SyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
@@ -24,10 +24,10 @@ private[stream] trait SinkBase[-In] extends Sink[In]
   * every time don't share state.
   */
 sealed trait StreamOutput[-In, +Res] extends Sink[In] {
-  def build()(implicit ec: ExecutionContext): FutureStream = builder.run()
+  def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
 
   // TODO rename to something nicer
-  def buildAndGet()(implicit ec: ExecutionContext): RunningStreamOutput[In, Res] = build()(ec)(this)
+  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
   def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 
   def consumer(): StreamConsumer[In, Res]

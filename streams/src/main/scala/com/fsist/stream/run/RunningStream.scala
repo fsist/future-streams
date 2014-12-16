@@ -5,7 +5,7 @@ import com.fsist.stream._
 import scala.concurrent.{ExecutionContext, Future}
 
 /** An actual stream (or general graph). Once an instance exists, it is already running. */
-class FutureStream(val builder: FutureStreamBuilder,
+class RunningStream(val builder: FutureStreamBuilder,
                    val components: Map[StreamComponent, RunningStreamComponent],
                    val connectors: Map[Connector[_, _], RunningConnector[_, _]],
                    graphOps: GraphOps)
@@ -21,7 +21,7 @@ class FutureStream(val builder: FutureStreamBuilder,
 
   // Once all Outputs have completed, all other components must have completed as well.
   private lazy val streamCompletion: Future[Unit] =
-    Future.sequence(components.values.filter(_.isInstanceOf[RunningStreamOutput[_, _]]).map(_.completion)) map (_ => ())
+    Future.sequence(components.values.filter(_.isInstanceOf[RunningOutput[_, _]]).map(_.completion)) map (_ => ())
 
   /** Fails the running stream by injecting an exception from outside.
     *
@@ -35,17 +35,17 @@ class FutureStream(val builder: FutureStreamBuilder,
 
   // Convenience accessors follow
 
-  def get[In, Res](output: StreamOutput[In, Res]): Option[RunningStreamOutput[In, Res]] =
-    components.get(output).map(_.asInstanceOf[RunningStreamOutput[In, Res]])
+  def get[In, Res](output: StreamOutput[In, Res]): Option[RunningOutput[In, Res]] =
+    components.get(output).map(_.asInstanceOf[RunningOutput[In, Res]])
 
-  def apply[In, Res](output: StreamOutput[In, Res]): RunningStreamOutput[In, Res] =
-    components(output).asInstanceOf[RunningStreamOutput[In, Res]]
+  def apply[In, Res](output: StreamOutput[In, Res]): RunningOutput[In, Res] =
+    components(output).asInstanceOf[RunningOutput[In, Res]]
 
-  def get[Out](input: StreamInput[Out]): Option[RunningStreamInput[Out]] =
-    components.get(input).map(_.asInstanceOf[RunningStreamInput[Out]])
+  def get[Out](input: StreamInput[Out]): Option[RunningInput[Out]] =
+    components.get(input).map(_.asInstanceOf[RunningInput[Out]])
 
-  def apply[Out](input: StreamInput[Out]): RunningStreamInput[Out] =
-    components(input).asInstanceOf[RunningStreamInput[Out]]
+  def apply[Out](input: StreamInput[Out]): RunningInput[Out] =
+    components(input).asInstanceOf[RunningInput[Out]]
 
   def get[In, Out](transform: Transform[In, Out]): Option[RunningTransform[In, Out]] =
     components.get(transform).map(_.asInstanceOf[RunningTransform[In, Out]])

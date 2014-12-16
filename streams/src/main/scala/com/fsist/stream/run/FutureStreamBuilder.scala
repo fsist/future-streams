@@ -13,7 +13,7 @@ import scala.concurrent.{Future, Promise, ExecutionContext}
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
 
-/** Builds the mutable state describing the stream graph being built, and allows building it into a runnable [[FutureStream]].
+/** Builds the mutable state describing the stream graph being built, and allows building it into a runnable [[RunningStream]].
   *
   * All operations are concurrent-safe, implemented using compare-and-swap on a single AtomicReference to an immutable State.
   * Since building a graph model usually has no performance issues, this errs in favor of correctness and catching problems
@@ -90,7 +90,7 @@ class FutureStreamBuilder extends Logging {
     }
 
   /** Builds and starts a runnable FutureStream from the current graph. */
-  def run()(implicit ec: ExecutionContext): FutureStream = {
+  def run()(implicit ec: ExecutionContext): RunningStream = {
     val st = mergeLinkedStates()
     validateBeforeBuilding(st)
     val model = st.graph
@@ -185,7 +185,7 @@ class FutureStreamBuilder extends Logging {
       }
     }
 
-    new FutureStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running), graphOps)
+    new RunningStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running), graphOps)
   }
 
   private def validateBeforeBuilding(state: State): Unit = {
