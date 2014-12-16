@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
-import com.fsist.util.{SyncFunc, Func}
+import com.fsist.util.concurrent.{SyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
 import scala.concurrent.{Future, ExecutionContext}

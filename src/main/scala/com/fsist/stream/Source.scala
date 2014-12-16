@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.FutureStreamBuilder
-import com.fsist.util.{SyncFunc, Func}
+import com.fsist.util.concurrent.{SyncFunc, Func}
 
 sealed trait Source[+Out] extends StreamComponent with SourceOps[Out] {
   def connect(next: Sink[Out]): next.type = {

@@ -1,11 +1,10 @@
-package com.fsist.util
+package com.fsist.util.concurrent
 
 import akka.http.util.FastFuture
 
 import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
-import scala.util.{Success, Failure}
 import scala.util.control.NonFatal
 
 sealed trait Func[-A, +B] {

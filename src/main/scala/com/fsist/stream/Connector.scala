@@ -1,8 +1,8 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.FutureStreamBuilder
-import com.fsist.util.{SyncFunc, Func}
-import com.fsist.util.SyncFunc._
+import com.fsist.util.concurrent.{Func, SyncFunc}
+import SyncFunc._
 
 import scala.collection.immutable
 import scala.collection.immutable.{IndexedSeq, BitSet}

@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.Func
+import com.fsist.util.concurrent.Func
 
 /** onNext and onComplete are called non-concurrently, i.e. each call must complete before another call starts.
   *

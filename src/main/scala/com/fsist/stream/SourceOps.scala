@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.FutureStreamBuilder
-import com.fsist.util.{Func, AsyncFunc}
+import com.fsist.util.concurrent.{AsyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.BitSet

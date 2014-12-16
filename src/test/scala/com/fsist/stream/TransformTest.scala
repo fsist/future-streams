@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.Func
+import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 
 class TransformTest extends FunSuite with StreamTester {

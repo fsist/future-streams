@@ -3,7 +3,7 @@ package com.fsist.stream
 import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream.run.RunningOutput
-import com.fsist.util.Func
+import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 
 import scala.util.Failure

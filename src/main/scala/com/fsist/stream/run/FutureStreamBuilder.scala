@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine._
-import com.fsist.util.SyncFunc
+import com.fsist.util.concurrent.SyncFunc
 import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec

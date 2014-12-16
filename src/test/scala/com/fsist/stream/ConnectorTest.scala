@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.{Func, AsyncFunc}
+import com.fsist.util.concurrent.AsyncFunc
 import org.scalatest.FunSuite
 
 import scala.collection.immutable

@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.Func
+import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 
 class StreamInputTest extends FunSuite with StreamTester {
