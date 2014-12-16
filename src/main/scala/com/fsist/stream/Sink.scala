@@ -22,6 +22,8 @@ private[stream] trait SinkBase[-In] extends Sink[In]
   * These functions are held in a separate class called StreamConsumer. This allows this model (the StreamOutput instance)
   * to be reused in multiple stream instances, as long as the functions inside the StreamConsumer instances it returns
   * every time don't share state.
+  *
+  * TODO this comment is wrong
   */
 sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
