@@ -7,20 +7,25 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
 import scala.util.control.NonFatal
 
+/** Abstracts over synchronous and asynchronous functions. Instances can be composed efficiently, building new synchronous
+  * functionsn if all component functions are synchronous.
+  *
+  * A func is always either a `SyncFunc` or an `AsyncFunc`.
+  */
 sealed trait Func[-A, +B] {
   /** Returns true iff this is a [[SyncFunc]] */
   def isSync: Boolean
 
-  /** Returns true iff this is a function built by `Func.pass` */
+  /** Returns true iff this is a function built by `Func.pass`. */
   def isPass: Boolean = false
 
   /** Returns true iff this function is either `Func.nop` or `Func.nopAsync`. */
   def isNop: Boolean = false
 
-  /** Shortcut for a cast to SyncFunc. Fails at runtime with ClassCastException. */
+  /** Shortcut for a cast to SyncFunc. Fails at runtime with ClassCastException if this function is asynchronous. */
   def asSync: SyncFunc[A, B] = this.asInstanceOf[SyncFunc[A, B]]
 
-  /** Shortcut for a cast to AsyncFunc. Fails at runtime with ClassCastException. */
+  /** Shortcut for a cast to AsyncFunc. Fails at runtime with ClassCastException if this function is synchronous. */
   def asAsync: AsyncFunc[A, B] = this.asInstanceOf[AsyncFunc[A, B]]
 
   /** Creates a new function composing these two, which is synchronous iff both inputs were synchronous. */
@@ -29,19 +34,27 @@ sealed trait Func[-A, +B] {
   /** Alias for `compose`. Creates a new function composing these two, which is synchronous iff both inputs were synchronous. */
   def ~>[C](next: Func[B, C])(implicit ec: ExecutionContext): Func[A, C] = compose(next)(ec)
 
-  /** Adds a synchronous recovery stage to this function. If `this` is a SyncFunc, the result will also be synchronous. */
+  /** Adds a synchronous recovery stage to this function, which handles both synchronously thrown exceptions, and failing
+    * futures returned by asynchronous functions.
+    *
+    * If `this` is a SyncFunc, the result will also be synchronous.
+    */
   def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U]
 
-  /** Adds an asnychronous recovery stage to this function.
+  /** Adds an asynchronous recovery stage to this function, which handles both synchronously thrown exceptions, and failing
+    * futures returned by asynchronous functions.
     *
     * This isn't declared to return an AsyncFunc because it can discard the `handler` and return a SyncFunc if the
-    * original function is e.g. `nop` or `pass`. */
+    * original function is e.g. `nop` or `pass`.
+    */
   def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): Func[A, U]
 
-  /** Adds a recovery stage to this function. If `this` and `handler` are both synchronous, then the result will also
-    * be synchronous.
+  /** Adds a recovery stage to this function, which handles both synchronously thrown exceptions, and failing
+    * futures returned by asynchronous functions.
     *
-    * However, the handler cannot be a partial function; it must handle all [[NonFatal]] exceptions.
+    * If `this` and `handler` are both synchronous, then the result will also be synchronous.
+    *
+    * Because the `handler` is a Func, it cannot be a partial function; it must handle all [[NonFatal]] exceptions.
     * Exceptions that don't match the NonFatal extractor will not be passed to the handler.
     */
   def someRecover[U >: B](handler: Func[Throwable, U])(implicit ec: ExecutionContext): Func[A, U] = handler match {
@@ -61,6 +74,8 @@ sealed trait Func[-A, +B] {
 
   /** Returns a new function that passes any exceptions in the original function to `handler`.
     * The new function still fails with the original exception after the `handler` has run.
+    *
+    * The returned Func is synchronous iff the original func is synchronous.
     */
   def composeFailure(handler: Throwable => Unit)(implicit ec: ExecutionContext): Func[A, B] = recover {
     case NonFatal(e) =>
@@ -70,12 +85,15 @@ sealed trait Func[-A, +B] {
 }
 
 object Func {
+  /** Constructs a synchronous function from an ordinary Scala function. */
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = SyncFunc(f)
 
+  /** Constructs a synchronous function that discards its input and uses the closure `f` to produce its output. */
   implicit def apply[B](f: => B): SyncFunc[Any, B] = SyncFunc(f)
 
   private[util] val futureSuccess = Future.successful(())
 
+  /** Constructs a function that passes input unmodified to the output. */
   def pass[T]: SyncFunc[T, T] = new SyncFunc[T, T] {
     override def isPass: Boolean = true
 
@@ -90,6 +108,7 @@ object Func {
     override def suppressErrors()(implicit ec: ExecutionContext): SyncFunc[T, Unit] = nop
   }
 
+  /** A function that discards its input and does nothing. */
   val nop: SyncFunc[Any, Unit] = new SyncFunc[Any, Unit] {
     override def isNop: Boolean = true
 
@@ -104,6 +123,7 @@ object Func {
     override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
   }
 
+  /** An asynchronous function that discards its input and does nothing. */
   val nopAsync: AsyncFunc[Any, Unit] = new AsyncFunc[Any, Unit] {
     override def isNop: Boolean = true
 
@@ -116,10 +136,6 @@ object Func {
     override def recoverWith[U >: Unit](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[Any, U] = this
 
     override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
-  }
-
-  def const[T](t: T): SyncFunc[Unit, T] = new SyncFunc[Unit, T] {
-    override def apply(a: Unit): T = t
   }
 
   /** Returns a function that will call all of the `funcs` with the same input, in order, unless one of them fails.
@@ -200,9 +216,11 @@ object Func {
   }
 }
 
-trait SyncFunc[-A, +B] extends Func[A, B] {
+/** The synchronous case of [[Func]]. */
+trait SyncFunc[-A, +B] extends Func[A, B] with (A => B) {
   override def isSync: Boolean = true
 
+  /** The core abstract method that must be implemented by each instance, providing the function behavior. */
   def apply(a: A): B
 
   override def someApply(a: A)(implicit ec: ExecutionContext): B = apply(a)
@@ -262,18 +280,22 @@ trait SyncFunc[-A, +B] extends Func[A, B] {
 }
 
 object SyncFunc {
+  /** Constructs a synchronous function from an ordinary Scala function. */
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = new SyncFunc[A, B] {
     override def apply(a: A): B = f(a)
   }
 
+  /** Constructs a synchronous function that discards its input and uses the closure `f` to produce its output. */
   implicit def apply[B](f: => B): SyncFunc[Any, B] = new SyncFunc[Any, B] {
     override def apply(a: Any): B = f
   }
 }
 
+/** The asynchronous case of [[Func]]. */
 trait AsyncFunc[-A, +B] extends Func[A, B] {
   override def isSync: Boolean = false
 
+  /** The core abstract method that must be implemented by each instance, providing the function behavior. */
   def apply(a: A)(implicit ec: ExecutionContext): Future[B]
 
   override def someApply(a: A)(implicit ec: ExecutionContext): Future[B] = apply(a)(ec)
@@ -326,6 +348,7 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
 }
 
 object AsyncFunc {
+  /** Constructs an asynchronous function from an ordinary Scala function. */
   implicit def apply[A, B](f: A => Future[B]): AsyncFunc[A, B] = new AsyncFunc[A, B] {
     override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = try {
       f(a)
@@ -335,6 +358,7 @@ object AsyncFunc {
     }
   }
 
+  /** Constructs an asynchronous function that discards its input and uses the closure `f` to produce its output. */
   implicit def apply[B](f: => Future[B]): AsyncFunc[Any, B] = new AsyncFunc[Any, B] {
     override def apply(a: Any)(implicit ec: ExecutionContext): Future[B] = try {
       f

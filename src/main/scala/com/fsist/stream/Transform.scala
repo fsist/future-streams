@@ -76,6 +76,6 @@ object Transform {
       }
     }
 
-    MultiTransform(builder, onNext, Func.const(Seq.empty), Func.nop)
+    MultiTransform(builder, onNext, Func(Seq.empty), Func.nop)
   }
 }
