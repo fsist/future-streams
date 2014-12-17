@@ -15,3 +15,6 @@ TODOs:
 - Add build* methods on stream components other than Sink
 - Replace calls to XxxFunc.apply with new XxxFunc implementations. This includes combinators in Func.scala as well as 
   external uses.
+- Convenience xxxAsync constructors take functions A => Future[B] instead of A => ExecutionContext => Future[B]
+  because I can't figure out the syntax for an anonymous function taking implicit arguments
+  

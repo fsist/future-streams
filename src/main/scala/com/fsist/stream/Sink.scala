@@ -56,8 +56,11 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   */
 trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In, Unit] {
   final override def onNext: Func[In, Unit] = this
+
   final override def onComplete: Func[Unit, Res] = complete()
+
   final override def apply(in: In): Unit = onNext(in)
+
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
 
   override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
@@ -85,8 +88,11 @@ trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In
   */
 trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[In, Unit] {
   final override def onNext: Func[In, Unit] = this
+
   final override def onComplete: Func[Unit, Res] = AsyncFunc.withEc((a: Unit) => (ec: ExecutionContext) => complete()(ec))
+
   final override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = onNext(in)
+
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
 
   override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
@@ -121,8 +127,18 @@ object SimpleOutput {
 }
 
 object Sink {
-  def foreach[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
+
+  def foreach[In, Res](onNext: In => Unit, onComplete: => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
+    SimpleOutput(builder, onNext, onComplete, onError)
+
+  def foreachAsync[In, Res](onNext: In => Future[Unit], onComplete: => Future[Res] = futureSuccess,
+                            onError: Throwable => Unit = Func.nopLiteral)
+                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
+    SimpleOutput(builder, AsyncFunc(onNext), AsyncFunc(onComplete), onError)
+
+  def foreachFunc[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
+                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)
 
   def foldLeft[In, Res](init: Res)(onNext: Func[(In, Res), Res],

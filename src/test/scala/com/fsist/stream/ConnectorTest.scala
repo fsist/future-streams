@@ -136,7 +136,7 @@ class ConnectorTest extends FunSuite with StreamTester {
 
     val promises = Vector.fill(count)(Promise[Unit]())
 
-    val sinks = for (promise <- promises) yield Sink.foreach[Int, Unit](AsyncFunc(x => promise.future))
+    val sinks = for (promise <- promises) yield Sink.foreachAsync[Int, Unit](x => promise.future)
     scatterer.connectOutputs(sinks)
 
     val stream = sinks(0).build()

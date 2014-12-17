@@ -81,24 +81,25 @@ trait SourceOps[+Out] {
   // Sink.foreach
 
   def foreach[Super >: Out, Res](func: Super => Unit,
-                                 onComplete: Unit => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
+                                 onComplete: => Res = Func.nopLiteral,
+                                 onError: Throwable => Unit = Func.nopLiteral)
                                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)
     connect(output)
   }
 
   def foreachAsync[Super >: Out, Res](func: Super => Future[Unit],
-                                      onComplete: Unit => Future[Res] = Func.nopAsyncLiteral,
-                                      onError: Throwable => Future[Unit] = Func.nopAsyncLiteral)
+                                      onComplete: => Future[Res] = futureSuccess,
+                                      onError: Throwable => Unit = Func.nopLiteral)
                                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
-    val output = Sink.foreach(AsyncFunc(func), AsyncFunc(onComplete), AsyncFunc(onError))
+    val output = Sink.foreachAsync(func, onComplete, onError)
     to(output)
   }
 
   def foreachFunc[Super >: Out, Res](func: Func[Super, Unit],
                                      onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
                                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
-    val output = Sink.foreach(func, onComplete, onError)
+    val output = Sink.foreachFunc(func, onComplete, onError)
     to(output)
   }
 
