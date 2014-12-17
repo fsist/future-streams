@@ -270,12 +270,16 @@ trait SyncFunc[-A, +B] extends Func[A, B] with (A => B) {
     }
   }
 
-  override def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): Func[A, U] = AsyncFunc[A, U] { a =>
-    try {
-      Future.successful(apply(a))
-    }
-    catch {
-      case NonFatal(e) if handler.isDefinedAt(e) => handler(e)
+  override def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): Func[A, U] = {
+    val self = this
+    new AsyncFunc[A, U] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[U] =
+        try {
+          Future.successful(self.apply(a))
+        }
+        catch {
+          case NonFatal(e) if handler.isDefinedAt(e) => handler(e)
+        }
     }
   }
 
@@ -329,33 +333,45 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
     }
   }
 
-  def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U] = AsyncFunc[A, U] { a =>
-    try {
-      val fut = new FastFuture(apply(a))
-      fut.recover(handler)
-    }
-    catch {
-      case NonFatal(e) if handler.isDefinedAt(e) => Future.successful(handler(e))
-    }
-  }
-
-  def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[A, U] = AsyncFunc[A, U] { a =>
-    try {
-      (apply(a).recoverWith(handler))
-    }
-    catch {
-      case NonFatal(e) if handler.isDefinedAt(e) => handler(e)
+  def recover[U >: B](handler: PartialFunction[Throwable, U])(implicit ec: ExecutionContext): Func[A, U] = {
+    val self = this
+    new AsyncFunc[A, U] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[U] =
+        try {
+          val fut = new FastFuture(self.apply(a))
+          fut.recover(handler)
+        }
+        catch {
+          case NonFatal(e) if handler.isDefinedAt(e) => Future.successful(handler(e))
+        }
     }
   }
 
-  def suppressErrors()(implicit ec: ExecutionContext): Func[A, Unit] = AsyncFunc[A, Unit] { a =>
-    try {
-      apply(a) map (_ => ()) recover {
-        case NonFatal(e) =>
-      }
+  def recoverWith[U >: B](handler: PartialFunction[Throwable, Future[U]])(implicit ec: ExecutionContext): AsyncFunc[A, U] = {
+    val self = this
+    new AsyncFunc[A, U] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[U] =
+        try {
+          (self.apply(a).recoverWith(handler))
+        }
+        catch {
+          case NonFatal(e) if handler.isDefinedAt(e) => handler(e)
+        }
     }
-    catch {
-      case NonFatal(e) => Func.futureSuccess
+  }
+
+  def suppressErrors()(implicit ec: ExecutionContext): Func[A, Unit] = {
+    val self = this
+    new AsyncFunc[A, Unit] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[Unit] =
+        try {
+          self.apply(a) map (_ => ()) recover {
+            case NonFatal(e) =>
+          }
+        }
+        catch {
+          case NonFatal(e) => Func.futureSuccess
+        }
     }
   }
 }
@@ -367,6 +383,19 @@ object AsyncFunc {
     else new AsyncFunc[A, B] {
       override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = try {
         f(a)
+      }
+      catch {
+        case NonFatal(e) => Future.failed(e)
+      }
+    }
+  }
+
+  /** Constructs an asynchronous function from an ordinary Scala function which takes a separate ExecutionContext. */
+  def withEc[A, B](f: A => ExecutionContext => Future[B]): AsyncFunc[A, B] = {
+    if (f eq Func.nopAsyncLiteral) Func.nopAsync.asInstanceOf[AsyncFunc[A, B]]
+    else new AsyncFunc[A, B] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = try {
+        f(a)(ec)
       }
       catch {
         case NonFatal(e) => Future.failed(e)
