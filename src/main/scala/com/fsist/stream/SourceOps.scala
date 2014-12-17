@@ -79,9 +79,30 @@ trait SourceOps[+Out] {
     transform(Transform.drop(count))
 
   // Transform.flatten
+
   def flatten[Elem]()(implicit ev: Out <:< Iterable[Elem],
                       builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Elem] = {
     transform(Transform.flatten[Elem, Iterable]().asInstanceOf[Transform[Out, Elem]])
+  }
+
+  // Transform.takeElements
+
+  def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
+                                                      (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
+                                                       cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                       builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Out@uncheckedVariance, Out] = {
+    val tr = Transform.takeElements(count)(cbf, builder)
+    transform(tr.asInstanceOf[Transform[Out, Out]])
+  }
+
+  // Transform.dropElements
+
+  def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
+                                                         (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
+                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Out@uncheckedVariance, Out] = {
+    val tr = Transform.dropElements(count)(cbf, builder)
+    transform(tr.asInstanceOf[Transform[Out, Out]])
   }
 
   // Sink.foreach

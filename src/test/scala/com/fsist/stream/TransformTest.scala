@@ -80,4 +80,18 @@ class TransformTest extends FunSuite with StreamTester {
     val result = Source.from(input).flatten().collect[List]().buildResult().futureValue
     assert(result == range, "Flattened")
   }
+
+  test("takeElements") {
+    val range = 1 to 10
+    val input = range.grouped(3)
+    val result = Source.from(input).takeElements(5).collect[List]().buildResult().futureValue
+    assert(result == List(List(1, 2, 3), List(4, 5)))
+  }
+
+  test("dropElements") {
+    val range = 1 to 10
+    val input = range.grouped(3)
+    val result = Source.from(input).dropElements(5).collect[List]().buildResult().futureValue
+    assert(result == List(List(6), List(7, 8, 9), List(10)))
+  }
 }

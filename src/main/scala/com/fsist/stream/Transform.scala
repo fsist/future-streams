@@ -5,6 +5,7 @@ import java.util.concurrent.atomic.AtomicLong
 import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
+import scala.collection.generic.CanBuildFrom
 import scala.concurrent.{Future, ExecutionContext}
 
 import scala.language.higherKinds
@@ -70,7 +71,7 @@ object Transform {
     * the upstream component from producing them, which may be expensive. */
   def take[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    var counter : Long = count
+    var counter: Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
@@ -88,7 +89,7 @@ object Transform {
 
   def drop[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    var counter : Long = count
+    var counter: Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
@@ -107,4 +108,55 @@ object Transform {
   /** Transforms a stream of iterable sequences into a stream of their elements. */
   def flatten[Elem, M[Elem] <: Iterable[Elem]]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[M[Elem], Elem] =
     flatMap[M[Elem], Elem](Func.pass)
+
+  /** Transforms a stream of sequences by emitting sequences containing no more than `count` elements.
+    *
+    * The emitted sequences are the same as the original ones, except for the last one, which is possibly truncated.
+    */
+  def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
+                                                      (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                       builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+    var remaining: Long = count
+    flatMap((input: Coll[Elem]) => {
+      if (remaining <= 0) List.empty
+      else {
+        val size = input.size
+        if (size <= remaining) {
+          remaining -= size
+          List(input)
+        }
+        else {
+          val ret = input.take(remaining.toInt)
+          remaining = 0
+          List(ret.to[Coll])
+        }
+      }
+    })
+  }
+
+  /** Transforms a stream of sequences by dropping leading sequences containing `count` elements.
+    *
+    * The emitted sequences are a suffix of the original ones, except for the first one, which is itself a suffix of
+    * some original sequence.
+    */
+  def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
+                                                         (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+    var remaining: Long = count
+    flatMap((input: Coll[Elem]) => {
+      if (remaining <= 0) List(input)
+      else {
+        val size = input.size
+        if (size <= remaining) {
+          remaining -= size
+          List.empty
+        }
+        else {
+          val ret = input.drop(remaining.toInt)
+          remaining = 0
+          List(ret.to[Coll])
+        }
+      }
+    })
+  }
 }
