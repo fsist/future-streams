@@ -1,5 +1,6 @@
 package com.fsist.stream
 
+import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
@@ -9,15 +10,13 @@ class StreamOutputTest extends FunSuite with StreamTester {
   test("SimpleOutput") {
     val data = 1 to 10
     val source = Source.from(data)
-    val sink = SimpleOutput(new StreamConsumer[Int, Int] {
-      var total = 0
 
-      override def onNext: Func[Int, Unit] = (i: Int) => total += i
-
-      override def onError: Func[Throwable, Unit] = Func.nop
-
-      override def onComplete: Func[Unit, Int] = total
-    })
+    var total = 0
+    val sink = SimpleOutput[Int, Int](
+      (i: Int) => total += i,
+      total,
+      Func.nop
+    )
 
     val result = source.to(sink).buildResult().futureValue
     val expected = data.sum

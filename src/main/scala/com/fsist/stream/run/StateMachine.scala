@@ -179,10 +179,7 @@ private[run] object StateMachine extends Logging {
     override val running: RunningOutput[In, Res] = RunningOutput(resultPromise.future)
 
     // Acquire copies of user functions
-    val (userOnNext, userOnComplete, userOnError) = {
-      val target = output.consumer()
-      (target.onNext, target.onComplete, target.onError)
-    }
+    val (userOnNext, userOnComplete, userOnError) = (output.onNext, output.onComplete, output.onError)
 
     lazy val consumer: Consumer[In] = {
       // From the user's perspective we must guarantee no calls to onNext/onComplete after onNext fails once.

@@ -29,32 +29,41 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
 
   def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
+
   def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 
-  def consumer(): StreamConsumer[In, Res]
+  def onNext: Func[In, Unit]
+
+  def onComplete: Func[Unit, Res]
+
+  def onError: Func[Throwable, Unit]
 }
 
 private[stream] trait StreamOutputBase[-In, +Res] extends StreamOutput[In, Res]
 
-final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder, consumer: StreamConsumer[In, Res]) extends StreamOutput[In, Res]
+final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder,
+                                         onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit]) extends StreamOutput[In, Res]
 
 object SimpleOutput {
-  def apply[In, Res](consumer: StreamConsumer[In, Res])
+  def apply[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit])
                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): SimpleOutput[In, Res] =
-    apply(builder, consumer)
+    apply(builder, onNext, onComplete, onError)
 }
 
 object Sink {
   def foreach[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
-    SimpleOutput(builder, StreamConsumer(onNext, onComplete, onError))
+    SimpleOutput(builder, onNext, onComplete, onError)
 
   def foldLeft[In, Res, State](init: State)(onNext: Func[(In, State), State], onComplete: Func[State, Res],
                                             onError: Func[Throwable, Unit] = Func.nop)
                               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
     val (userOnNext, userOnComplete, userOnError) = (onNext, onComplete, onError)
+    val b = builder
 
-    SimpleOutput(builder, new StreamConsumer[In, Res] {
+    new StreamOutput[In, Res] {
+      override def builder: FutureStreamBuilder = b
+
       private var state: State = init
 
       override def onNext: Func[In, Unit] = SyncFunc((in: In) => (in, state)) ~> userOnNext ~> SyncFunc((st: State) => state = st)
@@ -62,24 +71,28 @@ object Sink {
       override def onError: Func[Throwable, Unit] = userOnError
 
       override def onComplete: Func[Unit, Res] = SyncFunc(state) ~> userOnComplete
-    })
+
+    }
   }
 
   def collect[In, M[_]](onError: Func[Throwable, Unit] = Func.nop)
                        (implicit cbf: CanBuildFrom[Nothing, In, M[In]],
                         builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] = {
     val userOnError = onError
+    val b = builder
 
-    SimpleOutput(builder, new StreamConsumer[In, M[In]] {
-      val m = cbf.apply()
+    new StreamOutput[In, M[In]] {
+      override def builder: FutureStreamBuilder = b
+
+      private val m = cbf.apply()
 
       override def onNext: Func[In, Unit] = SyncFunc(m += _)
 
       override def onError: Func[Throwable, Unit] = userOnError
 
       override def onComplete: Func[Unit, M[In]] = m.result()
-    })
+    }
   }
 
-  List(1,2,3).sum
+  List(1, 2, 3).sum
 }
