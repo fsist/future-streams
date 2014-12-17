@@ -18,4 +18,3 @@ TODOs:
 - Add build* methods on stream components other than Sink
 - Replace calls to XxxFunc.apply with new XxxFunc implementations. This includes combinators in Func.scala as well as 
   external uses.
-

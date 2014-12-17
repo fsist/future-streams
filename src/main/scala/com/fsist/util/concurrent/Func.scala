@@ -123,6 +123,11 @@ object Func {
     override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
   }
 
+  /** A scala function that discards its input and does nothing.
+    * If you pass this to any Func constructor, you are guaranteed to get `Func.nop` back.
+    */
+  val nopLiteral: Any => Unit = _ => ()
+
   /** An asynchronous function that discards its input and does nothing. */
   val nopAsync: AsyncFunc[Any, Unit] = new AsyncFunc[Any, Unit] {
     override def isNop: Boolean = true
@@ -137,6 +142,11 @@ object Func {
 
     override def suppressErrors()(implicit ec: ExecutionContext): Func[Any, Unit] = this
   }
+
+  /** A scala function that discards its input and returns a successful Future.
+    * If you pass this to any AsyncFunc constructor, you are guaranteed to get `Func.nopAsync` back.
+    */
+  val nopAsyncLiteral: Any => Future[Unit] = _ => futureSuccess
 
   /** Returns a function that will call all of the `funcs` with the same input, in order, unless one of them fails.
     * The returned function will be synchronous if all of the input functions are synchronous.
@@ -281,8 +291,11 @@ trait SyncFunc[-A, +B] extends Func[A, B] with (A => B) {
 
 object SyncFunc {
   /** Constructs a synchronous function from an ordinary Scala function. */
-  implicit def apply[A, B](f: A => B): SyncFunc[A, B] = new SyncFunc[A, B] {
-    override def apply(a: A): B = f(a)
+  implicit def apply[A, B](f: A => B): SyncFunc[A, B] = {
+    if (f eq Func.nopLiteral) Func.nop.asInstanceOf[SyncFunc[A, B]]
+    else new SyncFunc[A, B] {
+      override def apply(a: A): B = f(a)
+    }
   }
 
   /** Constructs a synchronous function that discards its input and uses the closure `f` to produce its output. */
@@ -349,12 +362,15 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
 
 object AsyncFunc {
   /** Constructs an asynchronous function from an ordinary Scala function. */
-  implicit def apply[A, B](f: A => Future[B]): AsyncFunc[A, B] = new AsyncFunc[A, B] {
-    override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = try {
-      f(a)
-    }
-    catch {
-      case NonFatal(e) => Future.failed(e)
+  implicit def apply[A, B](f: A => Future[B]): AsyncFunc[A, B] = {
+    if (f eq Func.nopAsyncLiteral) Func.nopAsync.asInstanceOf[AsyncFunc[A, B]]
+    else new AsyncFunc[A, B] {
+      override def apply(a: A)(implicit ec: ExecutionContext): Future[B] = try {
+        f(a)
+      }
+      catch {
+        case NonFatal(e) => Future.failed(e)
+      }
     }
   }
 

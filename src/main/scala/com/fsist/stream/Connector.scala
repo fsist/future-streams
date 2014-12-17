@@ -40,10 +40,21 @@ final case class ConnectorOutput[T](connector: Connector[T], index: Int)
   override def isInput: Boolean = false
 }
 
-/** Connectors represent the only ways to connect multiple inputs to one output, or multiple outputs to one input. */
+/** Connectors represent the only ways to connect multiple inputs to one output, or multiple outputs to one input.
+  *
+  * They never change the elements going through them, which is also why there is only one type parameter `T` for both
+  * input and output.
+  */
 sealed trait Connector[T] {
+  /** The inputs to this Connector. They are fixed; this method will always return the exact same sequence. */
   def inputs: IndexedSeq[ConnectorInput[T]]
 
+  /** Connects these sources to our inputs, in order.
+    *
+    * This is a convenience method only; you can call connect() on each ConnectorInput individually.
+    *
+    * @throws IllegalArgumentException if the size of `sources` isn't the same as the size of `this.inputs`.
+    */
   def connectInputs(sources: immutable.Seq[Source[T]]): this.type = {
     require(sources.size == inputs.size, s"Must pass the same number of sources as we have inputs, was ${sources.size} vs ${inputs.size}")
 
@@ -52,8 +63,15 @@ sealed trait Connector[T] {
     this
   }
 
+  /** The outputs from this Connector. They are fixed; this method will always return the exact same sequence. */
   def outputs: IndexedSeq[ConnectorOutput[T]]
 
+  /** Connects these sinks to our outputs, in order.
+    *
+    * This is a convenience method only; you can call connect() on each ConnectorOutput individually.
+    *
+    * @throws IllegalArgumentException if the size of `sinks` isn't the same as the size of `this.outputs`.
+    */
   def connectOutputs(sinks: immutable.Seq[Sink[T]]): this.type = {
     require(sinks.size == outputs.size, s"Must pass the same number of sinks as we have outputs, was ${sinks.size} vs ${outputs.size}")
 
@@ -62,9 +80,8 @@ sealed trait Connector[T] {
     this
   }
 
+  /** The inputs and outputs of this Connector. */
   def edges: IndexedSeq[ConnectorEdge[T]] = inputs ++ outputs
-
-  def isSingleInput: Boolean = inputs.length == 1
 }
 
 /** Distributes data from one input to several outputs. Each chosen output is called sequentially and must complete
@@ -98,7 +115,8 @@ final case class Scatterer[T](outputCount: Int)
 }
 
 /** Merges data from several inputs to one output. Ordering is not strictly guaranteed, but the connector will not
-  * wait for an input if another input has data available. */
+  * wait for an input if another input has data available.
+  */
 final case class Merger[T](inputCount: Int)
                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
   require(inputCount > 0, "Must have at least one input")
@@ -109,17 +127,18 @@ final case class Merger[T](inputCount: Int)
 }
 
 object Connector {
+  /** @see [[com.fsist.stream.Splitter]] */
   def split[T](outputCount: Int, outputChooser: Func[T, BitSet])
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
 
-  /** Duplicates the input to each output. */
+  /** Duplicates all input to several output streams. */
   def tee[T](outputCount: Int)
             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = {
     val fullBitset = BitSet(0 until outputCount: _*)
     Splitter(outputCount, (t: T) => fullBitset)
   }
 
-  /** Distributes the input among outputs in a round-robin fashion */
+  /** Distributes the input among outputs in a round-robin fashion. */
   def roundRobin[T](outputCount: Int)
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet] {
     private var next = 0
@@ -132,10 +151,13 @@ object Connector {
     }
   })
 
+  /** @see [[com.fsist.stream.Merger]] */
   def merge[T](inputCount: Int)
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Merger[T] = Merger(inputCount)
 
-  /** Distributes the input among outputs in parallel, picking the first free output every time. */
+  /** Distributes the input among outputs in parallel, picking the first free output every time.
+    * @see [[com.fsist.stream.Scatterer]]
+    */
   def scatter[T](outputCount: Int)
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
 }

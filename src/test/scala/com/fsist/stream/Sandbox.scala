@@ -11,5 +11,4 @@ import scala.concurrent.duration._
 import scala.concurrent.{Await, Future, ExecutionContext}
 
 class Sandbox extends FunSuite with FutureTester {
-
 }

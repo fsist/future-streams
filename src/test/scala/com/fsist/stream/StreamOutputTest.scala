@@ -42,7 +42,7 @@ class StreamOutputTest extends FunSuite with StreamTester {
 
   test("collect (vector)") {
     val data = 1 to 10
-    val result = Source.from(data).collect[Int, Vector]().buildResult().futureValue
+    val result = Source.from(data).collect[Vector]().buildResult().futureValue
     assert(result.isInstanceOf[Vector[Int]] && result == data.to[Vector], "Collected in a Vector")
   }
 

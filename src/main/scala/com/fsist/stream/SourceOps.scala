@@ -3,109 +3,195 @@ package com.fsist.stream
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, Func}
 
+import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.BitSet
 import scala.concurrent.{ExecutionContext, Future}
 
 import scala.language.higherKinds
 
-/** Adds various shortcuts to StreamOutput. Doesn't implement anything new, just provides convenience wrappers
-  * for constructors of Source, Transform, Sink and Connect.
+/** Mixed into `Source` implementations to add shortcut methods to constructors of Source, Transform, Sink and Connect.
+  *
+  * All methods here have three variants:
+  * - One taking function literals A => B
+  * - Another called xxxAsync taking function literals A => Future[B]
+  * - And a third called xxxFunc taking Func objects.
+  *
+  * Although they have different signatures, making them into overloads would remove the ability to call the synchronous
+  * variant (the most common case) with function literals like `source.map(_ + 1)`.
   */
 trait SourceOps[+Out] {
   self: Source[Out] =>
 
-  // These are just aliases for `connect`
-  def to(sink: Sink[Out]): sink.type = connect(sink)
-
-  def transform[Next](tr: Transform[Out, Next]): tr.type = connect(tr)
-
-  // Shortcuts for Transform constructors
+  // Transform.map
 
   def map[Next](mapper: Out => Next)
                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
     transform(Transform.map(mapper))
 
+  def mapAsync[Next](mapper: Out => Future[Next])
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.map(AsyncFunc(mapper)))
+
+  def mapFunc[Next](mapper: Func[Out, Next])
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.map(mapper))
+
+  // Transform.flatMap
+
   def flatMap[Next](mapper: Out => Iterable[Next])
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
     transform(Transform.flatMap(mapper))
+
+  def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]])
+                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.flatMap(AsyncFunc(mapper)))
+
+  def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]])
+                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
+    transform(Transform.flatMap(mapper))
+
+  // Transform.filter
 
   def filter(filter: Out => Boolean)
             (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
     transform(Transform.filter(filter))
 
+  def filterAsync(filter: Out => Future[Boolean])
+                 (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
+    transform(Transform.filter(AsyncFunc(filter)))
+
+  def filterFunc(filter: Func[Out, Boolean])
+                (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
+    transform(Transform.filter(filter))
+
+  // Transform.drop
+
   def drop(count: Long)
           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
     transform(Transform.drop(count))
 
-  // Shortcuts for Sink constructors
+  // Sink.foreach
 
-  def foreach[Super >: Out, Res](func: Func[Super, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
+  def foreach[Super >: Out, Res](func: Super => Unit,
+                                 onComplete: Unit => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
                                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
+    val output = Sink.foreach(func, onComplete, onError)
+    connect(output)
+  }
+
+  def foreachAsync[Super >: Out, Res](func: Super => Future[Unit],
+                                      onComplete: Unit => Future[Res] = Func.nopAsyncLiteral,
+                                      onError: Throwable => Future[Unit] = Func.nopAsyncLiteral)
+                                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
+    val output = Sink.foreach(AsyncFunc(func), AsyncFunc(onComplete), AsyncFunc(onError))
+    to(output)
+  }
+
+  def foreachFunc[Super >: Out, Res](func: Func[Super, Unit],
+                                     onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
+                                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)
     to(output)
   }
 
-  def foreachAsync[Super >: Out](func: Super => Future[Unit])
-                                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, Unit] = {
-    val output = Sink.foreach(AsyncFunc(func))
-    to(output)
-  }
+  // Sink.foldLeft
 
-  // NOTE: these two overloads of foldLeft have slightly different signatures to let them coexist.
-  // One matches the signature of Sink.foldLeft; the other matches Iterable.foldLeft.
-
-  def foldLeft[Super >: Out, Res, State](state: State, onNext: Func[(Super, State), State], onComplete: Func[State, Res],
-                                         onError: Func[Throwable, Unit] = Func.nop)
-                                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
-    val sink = Sink.foldLeft[Super, Res, State](state)(onNext, onComplete, onError)(builder, ec)
+  def foldLeft[Super >: Out, Res](init: Res)
+                                 (onNext: (Super, Res) => Res,
+                                  onError: Throwable => Unit = Func.nop)
+                                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
+    val sink = Sink.foldLeft(init)(Function.tupled(onNext), onError)(builder, ec)
     to(sink)
   }
 
-  def foldLeft[Super >: Out, State](state: State)(onNext: (Super, State) => State)
-                                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, State] =
-    foldLeft(state, Func(Function.tupled(onNext)), Func.pass[State])
+  def foldLeftAsync[Super >: Out, Res](init: Res)
+                                      (onNext: ((Super, Res)) => Future[Res],
+                                       onError: Throwable => Future[Unit] = Func.nopAsyncLiteral)
+                                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
+    val sink = Sink.foldLeft(init)(AsyncFunc(onNext), AsyncFunc(onError))(builder, ec)
+    to(sink)
+  }
 
-  def collect[Super >: Out, M[_]](onError: Func[Throwable, Unit] = Func.nop)
-                                 (implicit cbf: CanBuildFrom[Nothing, Super, M[Super]],
-                                  builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, M[Super]] = {
-    val collector = Sink.collect(onError)(cbf, builder)
+  def foldLeftFunc[Super >: Out, Res](init: Res)
+                                     (onNext: Func[(Super, Res), Res],
+                                      onError: Func[Throwable, Unit] = Func.nop)
+                                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[Super, Res] = {
+    val sink = Sink.foldLeft[Super, Res](init)(onNext, onError)(builder, ec)
+    to(sink)
+  }
+
+  // Sink.collect
+
+  // For the legality of the use of @uncheckedVariance, compare TraversableOnce.To[M]
+  def collect[M[_]]()(implicit cbf: CanBuildFrom[Nothing, Out, M[Out@uncheckedVariance]],
+                      builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Out@uncheckedVariance, M[Out@uncheckedVariance]] = {
+    val collector = Sink.collect()(cbf, builder)
     to(collector)
   }
 
-  /** Collects to a List. Because generic arguments can't have default values, it's useful to have this overload without
-    * manually specifying the collection type every time.
-    */
-  def toList(onError: Func[Throwable, Unit] = Func.nop)
-            (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, List[Out]] = {
-    val collector = Sink.collect[Out, List](onError)
+  def collectSuper[Super >: Out, M[_]]()(implicit cbf: CanBuildFrom[Nothing, Super, M[Super]],
+                                         builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, M[Super]] = {
+    val collector = Sink.collect()(cbf, builder)
     to(collector)
   }
 
-  // Shortcuts for Connector constructors
+  // Shortcuts for `collect`
 
-  def split(outputCount: Int, outputChooser: Func[Out, BitSet])
+  def toList()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, List[Out]] = collect[List]()
+
+  def toSeq()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, Seq[Out]] = collect[Seq]()
+
+  def toIndexedSeq()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, IndexedSeq[Out]] = collect[IndexedSeq]()
+
+  def toVector()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, Vector[Out]] = collect[Vector]()
+
+  def toSet[Super >: Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, Set[Super]] = collectSuper[Super, Set]()
+
+  // Connector.split
+
+  def split(outputCount: Int, outputChooser: Out => BitSet)
            (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, outputChooser)
     to(splitter.inputs(0))
     splitter
   }
 
-  def tee(outputCount: Int = 2)
+  def splitAsync(outputCount: Int, outputChooser: Out => Future[BitSet])
+                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
+    val splitter = Connector.split(outputCount, AsyncFunc(outputChooser))
+    to(splitter.inputs(0))
+    splitter
+  }
+
+  def splitFunc(outputCount: Int, outputChooser: Func[Out, BitSet])
+               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
+    val splitter = Connector.split(outputCount, outputChooser)
+    to(splitter.inputs(0))
+    splitter
+  }
+  
+  // Connector.tee
+
+  def tee(outputCount: Int)
          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.tee[Out](outputCount)
     to(splitter.inputs(0))
     splitter
   }
 
-  def roundRobin(outputCount: Int = 2)
+  // Connector.roundRobin
+
+  def roundRobin(outputCount: Int)
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[_ <: Out] = {
     val splitter = Connector.roundRobin[Out](outputCount)
     to(splitter.inputs(0))
     splitter
   }
 
-  def scatter(outputCount: Int = 2)
+  // Connector.scatter
+
+  def scatter(outputCount: Int)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[_ <: Out] = {
     val scatterer = Connector.scatter[Out](outputCount)
     to(scatterer.inputs(0))
