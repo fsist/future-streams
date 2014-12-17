@@ -5,9 +5,7 @@ TODOs:
 - Replace SourceInput contract for NoSuchElementException with a custom EofException
 - Add pusher/puller, and convenience methods to interface multiple streams 
 - Probably make some things in the run.* interfaces private
-- Write all scaladocs
 - Decide on FastFuture vs async/await vs Func vs branching manually on Future.isCompleted, and document in README
-- Fix all TODO comments
 - More combinators
 - AsyncBuffer
 - Support `take` somehow. Maybe we can emit an EOF to downstream, and then not return from onNext until the stream is
