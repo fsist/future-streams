@@ -46,12 +46,20 @@ class TransformTest extends FunSuite with StreamTester {
     assert(result == expected, "Filtered correctly")
   }
 
-  test("skip") {
+  test("take") {
+    val range = 1 to 10
+
+    val result = Source.from(range).take(5).toList().buildResult().futureValue
+    val expected = range.take(5)
+    assert(result == expected)
+  }
+
+  test("drop") {
     val range = 1 to 10
 
     val result = Source.from(range).drop(5).toList().buildResult().futureValue
     val expected = range.drop(5)
-    assert(result == expected, "Skipped correctly")
+    assert(result == expected)
   }
 
   test("SingleTransform completion promise is fulfilled") {

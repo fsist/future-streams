@@ -17,4 +17,4 @@ TODOs:
   external uses.
 - Convenience xxxAsync constructors take functions A => Future[B] instead of A => ExecutionContext => Future[B]
   because I can't figure out the syntax for an anonymous function taking implicit arguments
-  
+- Add xxxAsync/xxx/xxxFunc triplets to all appropriate constructors on Sink, Source, Transform (matching SourceOps)

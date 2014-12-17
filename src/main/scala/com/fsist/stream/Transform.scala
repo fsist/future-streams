@@ -66,6 +66,26 @@ object Transform {
     MultiTransform(func, Func(List.empty))(builder)
   }
 
+  /** WARNING: this implementation discards all input after `count` elements have been taken, but it doesn't prevent
+    * the upstream component from producing them, which may be expensive. */
+  def take[T](count: Long)
+             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
+    val counter = new AtomicLong(count)
+
+    val onNext = new SyncFunc[T, Seq[T]] {
+      override def apply(a: T): Seq[T] = {
+        val counted = counter.decrementAndGet()
+
+        // Prevent eventual wraparound
+        if (counted < -100000000000L) counter.set(0)
+
+        if (counted < 0) Seq.empty else Seq(a)
+      }
+    }
+
+    MultiTransform(builder, onNext, Func(Seq.empty), Func.nop)
+  }
+
   def drop[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
     val counter = new AtomicLong(count)

@@ -66,6 +66,12 @@ trait SourceOps[+Out] {
                 (implicit ec: ExecutionContext, builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
     transform(Transform.filter(filter))
 
+  // Transform.take
+
+  def take(count: Long)
+          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
+    transform(Transform.take(count))
+
   // Transform.drop
 
   def drop(count: Long)
