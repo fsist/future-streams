@@ -7,12 +7,14 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 import scala.concurrent.{Future, ExecutionContext}
 
+/** A transformation of an element stream. The input and output elements don't always have a 1-to-1 correspondence. */
 sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
   def builder: FutureStreamBuilder
 
   def onError: Func[Throwable, Unit]
 }
 
+/** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
 final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Out],
                                             onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out]
 
@@ -23,6 +25,7 @@ object SingleTransform {
     apply(builder, onNext, onComplete, onError)
 }
 
+/** A 1-to-many transformation of stream elements, equivalent to a `flatMap`. */
 final case class MultiTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Iterable[Out]],
                                            onComplete: Func[Unit, Iterable[Out]], onError: Func[Throwable, Unit]) extends Transform[In, Out]
 
