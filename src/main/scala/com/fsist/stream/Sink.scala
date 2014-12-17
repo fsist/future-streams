@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
-import com.fsist.util.concurrent.{SyncFunc, Func}
+import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
 import scala.concurrent.{Future, ExecutionContext}
@@ -50,8 +50,58 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   def onError: Func[Throwable, Unit]
 }
 
-/** This trait allows extending the sealed StreamOutput trait inside this package. */
-private[stream] trait StreamOutputBase[-In, +Res] extends StreamOutput[In, Res]
+/** A trait that allows implementing a custom StreamOutput that processes items synchronously.
+  *
+  * This often allows writing more elegant code for complex stateful consumers.
+  */
+trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In, Unit] {
+  final override def onNext: Func[In, Unit] = this
+  final override def onComplete: Func[Unit, Res] = complete()
+  final override def apply(in: In): Unit = onNext(in)
+  final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
+
+  /** Called to process each successive element in the stream.
+    *
+    * Equivalent to StreamOutput.onNext. See the README for concurrency issues.
+    */
+  def onNext(in: In): Unit
+
+  /** Called on EOF to produce the final result.
+    *
+    * Equivalent to StreamInput.onComplete. See the README for concurrency issues.
+    */
+  def complete(): Res
+
+  /** Called if the stream fails. Equivalent to StreamInput.onError. See the README for concurrency issues. */
+  def onError(throwable: Throwable): Unit = ()
+}
+
+
+/** A trait that allows implementing a custom StreamOutput that processes items asynchronously.
+  *
+  * This often allows writing more elegant code for complex stateful consumers.
+  */
+trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[In, Unit] {
+  final override def onNext: Func[In, Unit] = this
+  final override def onComplete: Func[Unit, Res] = AsyncFunc.withEc((a: Unit) => (ec: ExecutionContext) => complete()(ec))
+  final override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = onNext(in)
+  final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
+
+  /** Called to process each successive element in the stream.
+    *
+    * Equivalent to StreamOutput.onNext. See the README for concurrency issues.
+    */
+  def onNext(in: In)(implicit ec: ExecutionContext): Future[Unit]
+
+  /** Called on EOF to produce the final result.
+    *
+    * Equivalent to StreamInput.onComplete. See the README for concurrency issues.
+    */
+  def complete()(implicit ec: ExecutionContext): Future[Res]
+
+  /** Called if the stream fails. Equivalent to StreamInput.onError. See the README for concurrency issues. */
+  def onError(throwable: Throwable): Unit = ()
+}
 
 /** A StreamOutput represented as a triplet of onXxx functions.
   *

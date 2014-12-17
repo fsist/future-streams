@@ -1,9 +1,9 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.FutureStreamBuilder
-import com.fsist.util.concurrent.{SyncFunc, Func}
+import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 
-import scala.concurrent.Future
+import scala.concurrent.{ExecutionContext, Future}
 
 /** A Source is any stream component that produces elements to a downstream Sink. */
 sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
@@ -33,6 +33,44 @@ sealed trait StreamInput[+Out] extends SourceBase[Out] {
   def producer: Func[Unit, Out]
 
   def onError: Func[Throwable, Unit]
+}
+
+/** A trait that allows implementing a custom StreamInput that produces items synchronously.
+  *
+  * This often allows writing more elegant code for complex stateful producers.
+  */
+trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] {
+  final override def producer: Func[Unit, Out] = this
+  final override def apply(a: Unit): Out = produce()
+  final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
+
+  /** Called to produce each successive element in the stream. Should throw a NoSuchElementException to indicate EOF.
+    *
+    * Equivalent to StreamInput.producer. See the README for concurrency issues.
+    */
+  def produce(): Out
+
+  /** Called if the stream fails. Equivalent to StreamInput.onError. See the README for concurrency issues. */
+  def onError(throwable: Throwable): Unit = ()
+}
+
+/** A trait that allows implementing a custom StreamInput that produces items asynchronously.
+  *
+  * This often allows writing more elegant code for complex stateful producers.
+  */
+trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out]{
+  final override def producer: Func[Unit, Out] = this
+  final override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Out] = produce()(ec)
+  final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
+
+  /** Called to produce each successive element in the stream. Should throw a NoSuchElementException to indicate EOF.
+    *
+    * Equivalent to StreamInput.producer. See the README for concurrency issues.
+    */
+  def produce()(implicit ec: ExecutionContext): Future[Out]
+
+  /** Called if the stream fails. Equivalent to StreamInput.onError. See the README for concurrency issues. */
+  def onError(throwable: Throwable): Unit = ()
 }
 
 /** A Source producing elements from an Iterator. */
