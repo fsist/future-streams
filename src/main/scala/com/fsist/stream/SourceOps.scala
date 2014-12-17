@@ -4,6 +4,7 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, Func}
 
 import scala.annotation.unchecked.uncheckedVariance
+import scala.collection.TraversableOnce
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.BitSet
 import scala.concurrent.{ExecutionContext, Future}
@@ -148,6 +149,15 @@ trait SourceOps[+Out] {
 
   def toSet[Super >: Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, Set[Super]] = collectSuper[Super, Set]()
 
+  // Sink.concat
+
+  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit ev: Out@uncheckedVariance =:= Coll[Elem],
+                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Out@uncheckedVariance, Out] = {
+    val output = Sink.concat()(cbf, builder).asInstanceOf[StreamOutput[Out, Out]]
+    to(output)
+  }
+
   // Connector.split
 
   def split(outputCount: Int, outputChooser: Out => BitSet)
@@ -170,7 +180,7 @@ trait SourceOps[+Out] {
     to(splitter.inputs(0))
     splitter
   }
-  
+
   // Connector.tee
 
   def tee(outputCount: Int)

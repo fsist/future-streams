@@ -4,6 +4,7 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.collection.generic.CanBuildFrom
 import scala.concurrent.duration._
 
 class StreamOutputTest extends FunSuite with StreamTester {
@@ -50,5 +51,12 @@ class StreamOutputTest extends FunSuite with StreamTester {
     val sink = Sink.foreach[Int, Unit](Func.nop)
     val stream = Source(1, 2, 3).to(sink).build()
     stream(sink).completion.futureValue(Timeout(1.second))
+  }
+
+  test("concat") {
+    val data = Seq.tabulate(10)(List(_))
+
+    val result = Source.from(data).concat().buildResult().futureValue
+    assert(result == data.toList.flatten, "Concatenated all input lists")
   }
 }

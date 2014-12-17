@@ -94,8 +94,7 @@ object Sink {
   /** Collect all input elements in a collection of type `M`, and produce it as the result. */
   def collect[In, M[_]]()(implicit cbf: CanBuildFrom[Nothing, In, M[In]],
                           builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] = {
-    val b = builder
-
+    def b = builder
     new StreamOutput[In, M[In]] {
       override def builder: FutureStreamBuilder = b
 
@@ -106,6 +105,25 @@ object Sink {
       override def onError: Func[Throwable, Unit] = Func.nop
 
       override def onComplete: Func[Unit, M[In]] = m.result()
+    }
+  }
+
+  /** Concatenate all input data into one large collection of the same type. Works only if the input type `In[Elem]`
+    * is some standard Scala collection with a `CanBuildFrom`.
+    */
+  def concat[Elem, In[Elem] <: TraversableOnce[Elem]]()(implicit cbf: CanBuildFrom[Nothing, Elem, In[Elem]],
+                                                        builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In[Elem], In[Elem]] = {
+    def b = builder
+    new StreamOutput[In[Elem], In[Elem]] {
+      override def builder: FutureStreamBuilder = b
+
+      private val m = cbf.apply()
+
+      override def onNext: Func[In[Elem], Unit] = SyncFunc(m ++= _)
+
+      override def onError: Func[Throwable, Unit] = Func.nop
+
+      override def onComplete: Func[Unit, In[Elem]] = m.result()
     }
   }
 }
