@@ -7,6 +7,8 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 import scala.concurrent.{Future, ExecutionContext}
 
+import scala.language.higherKinds
+
 /** A transformation of an element stream. The input and output elements don't always have a 1-to-1 correspondence. */
 sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
   def builder: FutureStreamBuilder
@@ -81,4 +83,8 @@ object Transform {
 
     MultiTransform(builder, onNext, Func(Seq.empty), Func.nop)
   }
+
+  /** Transforms a stream of iterable sequences into a stream of their elements. */
+  def flatten[Elem, M[Elem] <: Iterable[Elem]]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[M[Elem], Elem] =
+    flatMap[M[Elem], Elem](Func.pass)
 }

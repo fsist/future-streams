@@ -65,4 +65,11 @@ class TransformTest extends FunSuite with StreamTester {
     val stream = Source(1, 2, 3).to(tr).foreach(Func.nop).build()
     stream(tr).completion.futureValue(Timeout(1.second))
   }
+
+  test("flatten") {
+    val range = 1 to 10
+    val input = range.grouped(3)
+    val result = Source.from(input).flatten().collect[List]().buildResult().futureValue
+    assert(result == range, "Flattened")
+  }
 }

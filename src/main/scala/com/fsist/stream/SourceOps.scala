@@ -72,6 +72,12 @@ trait SourceOps[+Out] {
           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Out] =
     transform(Transform.drop(count))
 
+  // Transform.flatten
+  def flatten[Elem]()(implicit ev: Out <:< Iterable[Elem],
+                      builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Elem] = {
+    transform(Transform.flatten[Elem, Iterable]().asInstanceOf[Transform[Out, Elem]])
+  }
+
   // Sink.foreach
 
   def foreach[Super >: Out, Res](func: Super => Unit,
