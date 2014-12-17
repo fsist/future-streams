@@ -204,17 +204,25 @@ detail about the old version, these are the major *design* differences:
     (`StateMachine`, `FutureStream`), bridged by the `FutureStreamBuilder`. This is done for some of the same reasons
     as the materialization phase in akka-streams: to allow models to use the expected variance (e.g. `Source[+Out]`),
     and to reuse models where appropriate.
-4.  There is no explicit support for cancellation. Asynchronous cancellation with e.g. a CancelToken can be achieved by 
-    failing the stream from outside.
-5.  Results can only be computed by `StreamOutput` components (and not by other `Sink`s), and are only available once
+4.  Results can only be computed by `StreamOutput` components (and not by other `Sink`s), and are only available once
     the component has completed (which in practice is usually when the whole stream completes). This is intended as a
     convenience, not as a core feature. Components that wish to expose results earlier than that are expected to simply
     take, or return, a Promise in their model, or a user callback in the form of an extra Func, which they can then
     fulfill or call whenever they want to.
-6.  `StreamInput`, `StreamOutput` and the various types of `Transform` and `Connector` all have dedicated implementations 
+5.  `StreamInput`, `StreamOutput` and the various types of `Transform` and `Connector` all have dedicated implementations
     in the library core (in subclasses of `StateMachine`). Other abstractions are built on top of that in user code.
     This contrasts with the v1 model, where the only first-class types were `Source` and `Sink`, and all implementations
     had the same status.
     This allows us keep the core implementation simple, fast and correct. The variety of component implementations in v1
     made the library unmanageable.
-    
+
+### Removed features
+
+These minor features or combinators are no longer directly supported (most have workarounds):
+
+1.  There is no explicit support for cancellation. Asynchronous cancellation with e.g. a CancelToken can be achieved by
+    failing the stream from outside.
+2.  `Source.flatten`, `Sink.flatten` and `Pipe.flatten`, which convert a `Future[Source]` to a `Source` etc., are no
+    longer available. All stream components need to exist concretely when the stream is materialized.
+    It would be possible to implement `flatten` in the future-streams library core, but so far I'm trying to do without.
+
