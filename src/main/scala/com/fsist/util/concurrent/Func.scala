@@ -377,7 +377,11 @@ trait AsyncFunc[-A, +B] extends Func[A, B] {
 }
 
 object AsyncFunc {
-  /** Constructs an asynchronous function from an ordinary Scala function. */
+  /** Constructs an asynchronous function from an ordinary Scala function.
+    *
+    * WARNING: this overload requires the function to come with its own ExecutionContext and ignore the one passed to
+    * AsyncFunc.apply, which is usually not what you want.
+    */
   implicit def apply[A, B](f: A => Future[B]): AsyncFunc[A, B] = {
     if (f eq Func.nopAsyncLiteral) Func.nopAsync.asInstanceOf[AsyncFunc[A, B]]
     else new AsyncFunc[A, B] {

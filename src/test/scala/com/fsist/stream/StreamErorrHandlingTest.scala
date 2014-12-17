@@ -22,7 +22,7 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     val sourceOnError = new OnErrorRecorder
     val sinkOnError = new OnErrorRecorder
 
-    val source = Source.generate[Int]((x: Unit) => throw err, sourceOnError.onError)
+    val source = Source.generate[Int](throw err, sourceOnError.onError)
     val sink = Sink.foreach(Func.nop, onError = sinkOnError.onError)
 
     val stream = source.to(sink).build()

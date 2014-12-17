@@ -99,9 +99,17 @@ object Source {
   def from[Out](iter: Iterator[Out])(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     IteratorSource(builder, iter)
 
-  def generate[Out](producer: Func[Unit, Out], onError: Func[Throwable, Unit] = Func.nop)
+  def generateFunc[Out](producer: Func[Unit, Out], onError: Func[Throwable, Unit] = Func.nop)
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     GeneratorSource(builder, producer, onError)
+
+  def generate[Out](producer: => Out, onError: Throwable => Unit = Func.nopLiteral)
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+    generateFunc(SyncFunc(producer), SyncFunc(onError))
+
+  def generateAsync[Out](producer: Unit => Future[Out], onError: Throwable => Unit = Func.nopLiteral)
+                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+    generateFunc(AsyncFunc(producer), SyncFunc(onError))
 
   /** Creates a Source that produces no elements. This is just an alias for `apply`. */
   def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = apply()
