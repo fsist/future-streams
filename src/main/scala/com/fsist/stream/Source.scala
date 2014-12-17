@@ -4,6 +4,7 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 
 import scala.concurrent.{ExecutionContext, Future}
+import scala.util.control.ControlThrowable
 
 /** A Source is any stream component that produces elements to a downstream Sink. */
 sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
@@ -24,11 +25,20 @@ sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
 /** This trait allows extending the sealed Source trait inside this package. */
 private[stream] trait SourceBase[+Out] extends Source[Out]
 
+/** Marker trait of all exceptions used by the streams library for flow control.
+  *
+  * NOTE that extending ControlThrowable means scala.util.control.NonFatal does NOT catch exceptions of this type.
+  */
+sealed trait StreamControlThrowable extends ControlThrowable
+
+/** Thrown by StreamInput.producer to indicate the stream has completed. */
+case class EndOfStreamException() extends Exception("End of stream")
+
 /** A Source that introduces data into the stream from elsewhere, rather than from an upstream component. */
 sealed trait StreamInput[+Out] extends SourceBase[Out] {
 
   /** Called non-concurrently to produce the source elements. To indicate EOF, this function needs to throw a
-    * NoSuchElementException.
+    * EndOfStreamException.
     */
   def producer: Func[Unit, Out]
 
@@ -46,7 +56,7 @@ trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] {
 
   override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
 
-  /** Called to produce each successive element in the stream. Should throw a NoSuchElementException to indicate EOF.
+  /** Called to produce each successive element in the stream. Should throw a EndOfStreamException to indicate EOF.
     *
     * Equivalent to StreamInput.producer. See the README for concurrency issues.
     */
@@ -67,7 +77,7 @@ trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out]{
 
   override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
 
-  /** Called to produce each successive element in the stream. Should throw a NoSuchElementException to indicate EOF.
+  /** Called to produce each successive element in the stream. Should throw a EndOfStreamException to indicate EOF.
     *
     * Equivalent to StreamInput.producer. See the README for concurrency issues.
     */
@@ -81,7 +91,7 @@ trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out]{
 final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterator[Out]) extends StreamInput[Out] with SyncFunc[Unit, Out] {
   override def producer: Func[Unit, Out] = this
 
-  override def apply(unit: Unit): Out = if (iter.hasNext) iter.next() else throw new NoSuchElementException
+  override def apply(unit: Unit): Out = if (iter.hasNext) iter.next() else throw new EndOfStreamException
 
   def onError: Func[Throwable, Unit] = Func.nop
 }

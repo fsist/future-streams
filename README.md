@@ -127,7 +127,7 @@ Here is a more complex graph, which also demonstrates combining stream parts def
     var state = 0
     val source = Source.generate(AsyncFunc(Future {
       state += 1
-      if (state > 5) throw new NoSuchElementException // EOF
+      if (state > 5) throw new EndOfStreamException
       else state
     }))
   
@@ -227,4 +227,3 @@ These minor features or combinators are no longer directly supported (most have 
     It would be possible to implement `flatten` in the future-streams library core, but so far I'm trying to do without.
 3.  Adapters for java.io and java.nio are no longer included, because they are not part of the core concern of this library.
     (They are still just as easy to write.)
-    

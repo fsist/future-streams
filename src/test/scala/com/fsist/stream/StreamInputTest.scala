@@ -25,7 +25,7 @@ class StreamInputTest extends FunSuite with StreamTester {
     val range = 1 to 10
     val iter = range.iterator
 
-    val source = Source.generate(iter.next())
+    val source = Source.generate(if (iter.hasNext) iter.next() else throw new EndOfStreamException)
     val result = source.toList().buildResult().futureValue
     assert(result == range, "All items were generated")
   }

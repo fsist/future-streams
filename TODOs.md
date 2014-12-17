@@ -2,8 +2,7 @@ TODOs:
 
 - Add most/all standard methods from TraversableOnce (note that it shows how to write toList as a call to collect using
   @uncheckedVariance), and from Iterable and Seq.
-- Replace SourceInput contract for NoSuchElementException with a custom EofException
-- Add pusher/puller, and convenience methods to interface multiple streams 
+- Add pusher/puller, and convenience methods to interface multiple streams
 - Probably make some things in the run.* interfaces private
 - Decide on FastFuture vs async/await vs Func vs branching manually on Future.isCompleted, and document in README
 - More combinators

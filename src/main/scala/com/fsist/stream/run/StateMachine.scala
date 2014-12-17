@@ -159,7 +159,7 @@ private[run] object StateMachine extends Logging {
       )
 
       mainLoop recover {
-        case e: NoSuchElementException =>
+        case e: EndOfStreamException =>
           handledComplete.someApply(())
           completionPromise.success(())
         case NonFatal(e) =>
