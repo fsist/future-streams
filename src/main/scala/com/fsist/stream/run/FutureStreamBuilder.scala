@@ -69,7 +69,7 @@ class FutureStreamBuilder extends Logging {
 
   /** Irreversibly connects two components together, and possibly links their builders. */
   def connect[In >: Out, Out](source: Source[Out], sink: Sink[In]): Unit = {
-    alterState(_.mapGraph(_ + DiEdge(source, sink)))
+    alterState(_.mapGraph(_ + DiEdge[StreamComponent](source, sink)))
     if (source.builder ne this) link(source.builder)
     if (sink.builder ne this) link(sink.builder)
   }
@@ -133,6 +133,7 @@ class FutureStreamBuilder extends Logging {
           case input: StreamInput[_] => (input: StreamComponent, new InputMachine(input, graphOps))
           case output: StreamOutput[_, _] => (output: StreamComponent, new OutputMachine(output, graphOps))
           case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
+          case other => ??? // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }
       }).toMap
 

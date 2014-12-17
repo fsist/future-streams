@@ -8,7 +8,7 @@ import scala.collection.immutable
 import scala.collection.immutable.{IndexedSeq, BitSet}
 
 /** Common trait for the inputs and outputs of a Connector. */
-sealed trait ConnectorEdge[T] extends StreamComponent {
+sealed trait ConnectorEdge[T] extends StreamComponentBase {
   def connector: Connector[T]
 
   /** Index in the connector's list of inputs or outputs (not the list of all edges). */

@@ -8,7 +8,7 @@ import scala.concurrent.ExecutionContext
   *
   * NOTE: the trait constructor registers this instance with the StreamBuilder returned by `builder`!
   */
-private[stream] trait StreamComponent {
+sealed trait StreamComponent {
   // This is implicit to become the default parameter value for methods in SourceOps
   implicit def builder: FutureStreamBuilder
 
@@ -16,3 +16,5 @@ private[stream] trait StreamComponent {
   builder.register(this)
 }
 
+/** This trait allows extending the sealed StreamComponent trait inside this package. */
+private[stream] trait StreamComponentBase extends StreamComponent

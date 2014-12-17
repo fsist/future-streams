@@ -4,7 +4,7 @@ import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{SyncFunc, Func}
 
 /** A Source is any stream component that produces elements to a downstream Sink. */
-sealed trait Source[+Out] extends StreamComponent with SourceOps[Out] {
+sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
 
   /** Irreversibly join this source with that sink. */
   def connect(next: Sink[Out]): next.type = {

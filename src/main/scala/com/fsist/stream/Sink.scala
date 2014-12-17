@@ -9,7 +9,7 @@ import scala.concurrent.{Future, ExecutionContext}
 import scala.language.higherKinds
 
 /** A Sink is any stream component that receives input elements. */
-sealed trait Sink[-In] extends StreamComponent {
+sealed trait Sink[-In] extends StreamComponentBase {
 }
 
 /** This trait allows extending the sealed Sink trait inside this package. */
