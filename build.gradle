@@ -1,9 +1,8 @@
 defaultTasks 'compileScala', 'compileTestScala'
 
 task wrapper(type: Wrapper) {
-  gradleVersion = '2.1'
+  gradleVersion = '2.2.1'
 }
-
 
 apply plugin: 'scala'
 
