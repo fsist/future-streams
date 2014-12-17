@@ -3,6 +3,8 @@ package com.fsist.stream
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{SyncFunc, Func}
 
+import scala.concurrent.Future
+
 /** A Source is any stream component that produces elements to a downstream Sink. */
 sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
 
@@ -58,4 +60,7 @@ object Source {
   def generate[Out](producer: Func[Unit, Out], onError: Func[Throwable, Unit] = Func.nop)
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     GeneratorSource(builder, producer, onError)
+
+  /** Creates a Source that produces no elements. This is just an alias for `apply`. */
+  def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = apply()
 }
