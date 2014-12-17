@@ -1,6 +1,6 @@
-package com.fsist.stream2.run
+package com.fsist.stream.run
 
-import com.fsist.stream2.{Connector, Transform, StreamOutput, StreamInput}
+import com.fsist.stream.{Connector, Transform, StreamOutput, StreamInput}
 
 import scala.concurrent.{ExecutionContext, Future}
 

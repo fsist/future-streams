@@ -1,6 +1,6 @@
-package com.fsist.stream2
+package com.fsist.stream
 
-import com.fsist.stream2.run.FutureStreamBuilder
+import com.fsist.stream.run.FutureStreamBuilder
 
 import scala.concurrent.ExecutionContext
 
@@ -17,4 +17,4 @@ sealed trait StreamComponent {
 }
 
 /** This trait allows extending the sealed StreamComponent trait inside this package. */
-private[stream2] trait StreamComponentBase extends StreamComponent
+private[stream] trait StreamComponentBase extends StreamComponent

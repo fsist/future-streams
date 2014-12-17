@@ -1,4 +1,4 @@
-package com.fsist.stream2
+package com.fsist.stream
 
 import com.fsist.FutureTester
 import org.scalatest.FunSuiteLike

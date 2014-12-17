@@ -1,4 +1,4 @@
-package com.fsist.stream2
+package com.fsist.stream
 
 import com.fsist.util.concurrent.{Func, AsyncFunc}
 import org.scalatest.FunSuite

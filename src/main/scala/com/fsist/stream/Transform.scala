@@ -1,9 +1,9 @@
-package com.fsist.stream2
+package com.fsist.stream
 
 import java.util.concurrent.atomic.AtomicLong
 
 import akka.http.util.FastFuture
-import com.fsist.stream2.run.FutureStreamBuilder
+import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 import scala.concurrent.{Future, ExecutionContext}
 

@@ -1,9 +1,9 @@
-package com.fsist.stream2.run
+package com.fsist.stream.run
 
 import java.util.concurrent.atomic.AtomicReference
 
-import com.fsist.stream2._
-import com.fsist.stream2.run.StateMachine._
+import com.fsist.stream._
+import com.fsist.stream.run.StateMachine._
 import com.fsist.util.concurrent.SyncFunc
 import com.typesafe.scalalogging.slf4j.Logging
 

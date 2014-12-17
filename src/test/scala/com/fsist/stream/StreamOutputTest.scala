@@ -1,6 +1,6 @@
-package com.fsist.stream2
+package com.fsist.stream
 
-import com.fsist.stream2.run.FutureStreamBuilder
+import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout

@@ -1,4 +1,4 @@
-package com.fsist.stream2
+package com.fsist.stream
 
 import java.util.concurrent.atomic.AtomicLong
 
