@@ -70,7 +70,7 @@ object Transform {
     * the upstream component from producing them, which may be expensive. */
   def take[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    @volatile var counter : Long = count
+    var counter : Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
@@ -88,7 +88,7 @@ object Transform {
 
   def drop[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    @volatile var counter : Long = count
+    var counter : Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
