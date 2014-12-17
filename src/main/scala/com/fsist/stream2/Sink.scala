@@ -1,6 +1,6 @@
-package com.fsist.stream
+package com.fsist.stream2
 
-import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
+import com.fsist.stream2.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 import com.fsist.util.concurrent.{SyncFunc, Func}
 
 import scala.collection.generic.CanBuildFrom
@@ -13,7 +13,7 @@ sealed trait Sink[-In] extends StreamComponentBase {
 }
 
 /** This trait allows extending the sealed Sink trait inside this package. */
-private[stream] trait SinkBase[-In] extends Sink[In]
+private[stream2] trait SinkBase[-In] extends Sink[In]
 
 /** A Sink that sends data outside the stream, calculates a result, and/or has some other useful side effects.
   *
@@ -51,11 +51,11 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
 }
 
 /** This trait allows extending the sealed StreamOutput trait inside this package. */
-private[stream] trait StreamOutputBase[-In, +Res] extends StreamOutput[In, Res]
+private[stream2] trait StreamOutputBase[-In, +Res] extends StreamOutput[In, Res]
 
 /** A StreamOutput represented as a triplet of onXxx functions.
   *
-  * @see [[com.fsist.stream.StreamOutput]]
+  * @see [[com.fsist.stream2.StreamOutput]]
   */
 final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder,
                                          onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit]) extends StreamOutput[In, Res]

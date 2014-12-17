@@ -1,6 +1,6 @@
-package com.fsist.stream
+package com.fsist.stream2
 
-import com.fsist.stream.run.FutureStreamBuilder
+import com.fsist.stream2.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{SyncFunc, Func}
 
 /** A Source is any stream component that produces elements to a downstream Sink. */
@@ -20,7 +20,7 @@ sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
 }
 
 /** This trait allows extending the sealed Source trait inside this package. */
-private[stream] trait SourceBase[+Out] extends Source[Out]
+private[stream2] trait SourceBase[+Out] extends Source[Out]
 
 /** A Source that introduces data into the stream from elsewhere, rather than from an upstream component. */
 sealed trait StreamInput[+Out] extends SourceBase[Out] {

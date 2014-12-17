@@ -1,8 +1,8 @@
-package com.fsist.stream
+package com.fsist.stream2
 
 import java.util.concurrent.atomic.AtomicReference
 
-import com.fsist.stream.run.RunningOutput
+import com.fsist.stream2.run.RunningOutput
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 

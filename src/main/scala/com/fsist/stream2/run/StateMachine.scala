@@ -1,9 +1,9 @@
-package com.fsist.stream.run
+package com.fsist.stream2.run
 
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.http.util.FastFuture
-import com.fsist.stream._
+import com.fsist.stream2._
 import com.fsist.util.concurrent._
 import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.slf4j.Logging

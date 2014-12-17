@@ -1,6 +1,6 @@
-package com.fsist.stream
+package com.fsist.stream2
 
-import com.fsist.stream.run.FutureStreamBuilder
+import com.fsist.stream2.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{Func, SyncFunc}
 import SyncFunc._
 
@@ -127,7 +127,7 @@ final case class Merger[T](inputCount: Int)
 }
 
 object Connector {
-  /** @see [[com.fsist.stream.Splitter]] */
+  /** @see [[com.fsist.stream2.Splitter]] */
   def split[T](outputCount: Int, outputChooser: Func[T, BitSet])
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
 
@@ -151,12 +151,12 @@ object Connector {
     }
   })
 
-  /** @see [[com.fsist.stream.Merger]] */
+  /** @see [[com.fsist.stream2.Merger]] */
   def merge[T](inputCount: Int)
               (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Merger[T] = Merger(inputCount)
 
   /** Distributes the input among outputs in parallel, picking the first free output every time.
-    * @see [[com.fsist.stream.Scatterer]]
+    * @see [[com.fsist.stream2.Scatterer]]
     */
   def scatter[T](outputCount: Int)
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
