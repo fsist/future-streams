@@ -7,37 +7,44 @@ import SyncFunc._
 import scala.collection.immutable
 import scala.collection.immutable.{IndexedSeq, BitSet}
 
-sealed trait ConnectorEdge[-In, +Out] extends StreamComponent {
-  def connector: Connector[In, Out]
+/** Common trait for the inputs and outputs of a Connector. */
+sealed trait ConnectorEdge[T] extends StreamComponent {
+  def connector: Connector[T]
 
+  /** Index in the connector's list of inputs or outputs (not the list of all edges). */
   def index: Int
 
+  /** True iff this is a ConnectorInput. */
   def isInput: Boolean
 }
 
-final case class ConnectorInput[-In, +Out](connector: Connector[In, Out], index: Int)
+/** A Sink which inputs data into a connector.
+  *
+  * This type allows connecting Sources to a Connector, which is not itself a StreamComponent of any kind.
+  */
+final case class ConnectorInput[T](connector: Connector[T], index: Int)
                                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
-  extends SinkBase[In] with ConnectorEdge[In, Out] {
+  extends SinkBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = true
 }
 
-final case class ConnectorOutput[-In, +Out](connector: Connector[In, Out], index: Int)
+/** A Source which outputs data from a connector.
+  *
+  * This type allows connecting Sinks to a Connector, which is not itself a StreamComponent of any kind.
+  */
+final case class ConnectorOutput[T](connector: Connector[T], index: Int)
                                            (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
-  extends SourceBase[Out] with ConnectorEdge[In, Out] {
+  extends SourceBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = false
 }
 
-/** Note that a Connector is not a StreamComponent; its edges (inputs and outputs) are.
-  *
-  * TODO if we only have Splitters and Mergers, and if we're sure we won't have anything else in the future, why not
-  * simplify this to Connector[T]?
-  */
-sealed trait Connector[-In, +Out] {
-  def inputs: IndexedSeq[ConnectorInput[In, Out]]
+/** Connectors represent the only ways to connect multiple inputs to one output, or multiple outputs to one input. */
+sealed trait Connector[T] {
+  def inputs: IndexedSeq[ConnectorInput[T]]
 
-  def connectInputs(sources: immutable.Seq[Source[In]]): this.type = {
+  def connectInputs(sources: immutable.Seq[Source[T]]): this.type = {
     require(sources.size == inputs.size, s"Must pass the same number of sources as we have inputs, was ${sources.size} vs ${inputs.size}")
 
     for ((source, input) <- sources zip inputs) source.connect(input)
@@ -45,9 +52,9 @@ sealed trait Connector[-In, +Out] {
     this
   }
 
-  def outputs: IndexedSeq[ConnectorOutput[In, Out]]
+  def outputs: IndexedSeq[ConnectorOutput[T]]
 
-  def connectOutputs(sinks: immutable.Seq[Sink[Out]]): this.type = {
+  def connectOutputs(sinks: immutable.Seq[Sink[T]]): this.type = {
     require(sinks.size == outputs.size, s"Must pass the same number of sinks as we have outputs, was ${sinks.size} vs ${outputs.size}")
 
     for ((sink, output) <- sinks zip outputs) output.connect(sink)
@@ -55,7 +62,7 @@ sealed trait Connector[-In, +Out] {
     this
   }
 
-  def edges: IndexedSeq[ConnectorEdge[In, Out]] = inputs ++ outputs
+  def edges: IndexedSeq[ConnectorEdge[T]] = inputs ++ outputs
 
   def isSingleInput: Boolean = inputs.length == 1
 }
@@ -67,7 +74,7 @@ sealed trait Connector[-In, +Out] {
   *                      If an empty BitSet is returned, the element is dropped.
   */
 final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
-                            (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+                            (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
   require(outputCount > 0, "Must have at least one output")
 
   val inputs = Vector(ConnectorInput(this, 0))
@@ -82,7 +89,7 @@ final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
   * are busy when an input element arrives, we wait for any output to become available.
   */
 final case class Scatterer[T](outputCount: Int)
-                             (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+                             (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
   require(outputCount > 0, "Must have at least one output")
 
   val inputs = Vector(ConnectorInput(this, 0))
@@ -93,7 +100,7 @@ final case class Scatterer[T](outputCount: Int)
 /** Merges data from several inputs to one output. Ordering is not strictly guaranteed, but the connector will not
   * wait for an input if another input has data available. */
 final case class Merger[T](inputCount: Int)
-                          (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T, T] {
+                          (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
   require(inputCount > 0, "Must have at least one input")
 
   val inputs = for (index <- 0 until inputCount) yield ConnectorInput(this, index)

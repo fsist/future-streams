@@ -21,16 +21,16 @@ sealed trait RunningStreamComponent {
 }
 
 case class RunningInput[+Out](completion: Future[Unit],
-                                    input: StreamInput[Out]) extends RunningStreamComponent
+                              input: StreamInput[Out]) extends RunningStreamComponent
 
 /** @param result succeeds or fails together with `completion`, but contains the calculated result if it succeeds. */
 case class RunningOutput[-In, +Res](result: Future[Res])
-                                         (implicit ec: ExecutionContext) extends RunningStreamComponent {
+                                   (implicit ec: ExecutionContext) extends RunningStreamComponent {
   override def completion: Future[Unit] = result map (_ => ())
 }
 
 case class RunningTransform[-In, +Out](completion: Future[Unit],
                                        transform: Transform[In, Out]) extends RunningStreamComponent
 
-case class RunningConnector[-In, +Out](completion: Future[Unit],
-                                       connector: Connector[In, Out]) extends RunningStreamComponent
+case class RunningConnector[T](completion: Future[Unit],
+                               connector: Connector[T]) extends RunningStreamComponent

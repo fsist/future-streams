@@ -114,12 +114,12 @@ class FutureStreamBuilder extends Logging {
       }
     }
 
-    val allConnectors: Set[Connector[_, _]] =
-      model.nodes.toOuter.filter(_.isInstanceOf[ConnectorEdge[_, _]]).map(_.asInstanceOf[ConnectorEdge[_, _]].connector).toSet
+    val allConnectors: Set[Connector[_]] =
+      model.nodes.toOuter.filter(_.isInstanceOf[ConnectorEdge[_]]).map(_.asInstanceOf[ConnectorEdge[_]].connector).toSet
 
     // Create the StateMachine instances
 
-    val connectorMachines: Map[Connector[_, _], ConnectorMachine[_]] =
+    val connectorMachines: Map[Connector[_], ConnectorMachine[_]] =
       allConnectors.map({
         case merger: Merger[_] => (merger, new MergerMachine(merger, graphOps))
         case splitter: Splitter[_] => (splitter, new SplitterMachine(splitter, graphOps))
@@ -128,7 +128,7 @@ class FutureStreamBuilder extends Logging {
 
     // All component types other than connectors
     val componentMachines: Map[StreamComponent, StateMachine] =
-      (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_, _]]) yield {
+      (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
         node match {
           case input: StreamInput[_] => (input: StreamComponent, new InputMachine(input, graphOps))
           case output: StreamOutput[_, _] => (output: StreamComponent, new OutputMachine(output, graphOps))
@@ -161,7 +161,7 @@ class FutureStreamBuilder extends Logging {
     for (DiEdge(from: Source[_], to: Sink[_]) <- model.edges.toOuter) {
       from match {
         // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
-        case output: ConnectorOutput[_, _] if output.connector.outputs.size > 1 =>
+        case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
           allMachines(from) match {
             case machine: ConnectorMachineWithOutputs[_] =>
               val outputIndex = output.connector.outputs.indexOf(output)
@@ -207,7 +207,7 @@ class FutureStreamBuilder extends Logging {
     }.foreach {
       _ match {
         case (1, node) => require(!node.isInstanceOf[StreamOutput[_, _]], s"Node $node is a StreamOutput and cannot be connected to another Sink")
-        case (0, node) => require(node.isInstanceOf[StreamOutput[_, _]] || node.isInstanceOf[ConnectorInput[_, _]], s"Node $node must be connected to a Sink")
+        case (0, node) => require(node.isInstanceOf[StreamOutput[_, _]] || node.isInstanceOf[ConnectorInput[_]], s"Node $node must be connected to a Sink")
         case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sinks at once")
         case _ =>
       }
@@ -218,7 +218,7 @@ class FutureStreamBuilder extends Logging {
     }.foreach {
       _ match {
         case (1, node) => require(!node.isInstanceOf[StreamInput[_]], s"Node $node is a StreamInput and cannot be connected to another Source")
-        case (0, node) => require(node.isInstanceOf[StreamInput[_]] || node.isInstanceOf[ConnectorOutput[_, _]], s"Node $node must be connected to a Source")
+        case (0, node) => require(node.isInstanceOf[StreamInput[_]] || node.isInstanceOf[ConnectorOutput[_]], s"Node $node must be connected to a Source")
         case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sources at once")
         case _ =>
       }

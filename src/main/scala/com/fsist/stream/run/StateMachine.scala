@@ -94,7 +94,7 @@ private[run] sealed trait StateMachineWithInput[In] extends StateMachine {
 }
 
 private[run] sealed trait ConnectorMachine[T] extends StateMachineWithInput[T] {
-  def running: RunningConnector[T, T]
+  def running: RunningConnector[T]
 }
 
 private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
@@ -106,7 +106,7 @@ private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
 private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachine[T] {
   type TT = T
 
-  def connector: Connector[_, T]
+  def connector: Connector[T]
 
   // Initialized by the stream builder before running
   val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to connector.outputs.size) map (_ => None): _*)
@@ -230,7 +230,7 @@ private[run] object StateMachine extends Logging {
 
   class MergerMachine[T](val merger: Merger[T], val graph: GraphOps)
                         (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] with RunnableMachine {
-    override val running: RunningConnector[T, T] = RunningConnector(completionPromise.future, merger)
+    override val running: RunningConnector[T] = RunningConnector(completionPromise.future, merger)
 
     // We enqueue a None each time one input sees onComplete. The dequeuer, in `run`, counts the None elements
     // and emits its own onComplete when one None has been seen for each input.
@@ -295,7 +295,7 @@ private[run] object StateMachine extends Logging {
 
   class SplitterMachine[T](val connector: Splitter[T], val graph: GraphOps)
                           (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
-    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, connector)
+    override def running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
@@ -330,7 +330,7 @@ private[run] object StateMachine extends Logging {
 
   class ScattererMachine[T](val connector: Scatterer[T], val graph: GraphOps)
                            (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
-    override def running: RunningConnector[T, T] = RunningConnector(completionPromise.future, connector)
+    override def running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 

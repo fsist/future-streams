@@ -7,7 +7,7 @@ import scala.concurrent.{ExecutionContext, Future}
 /** An actual stream (or general graph). Once an instance exists, it is already running. */
 class RunningStream(val builder: FutureStreamBuilder,
                    val components: Map[StreamComponent, RunningStreamComponent],
-                   val connectors: Map[Connector[_, _], RunningConnector[_, _]],
+                   val connectors: Map[Connector[_], RunningConnector[_]],
                    graphOps: GraphOps)
                   (implicit ec: ExecutionContext) {
 
@@ -53,10 +53,10 @@ class RunningStream(val builder: FutureStreamBuilder,
   def apply[In, Out](transform: Transform[In, Out]): RunningTransform[In, Out] =
     components(transform).asInstanceOf[RunningTransform[In, Out]]
 
-  def get[In, Out](connector: Connector[In, Out]): Option[RunningConnector[In, Out]] =
-    connectors.get(connector).map(_.asInstanceOf[RunningConnector[In, Out]])
+  def get[T](connector: Connector[T]): Option[RunningConnector[T]] =
+    connectors.get(connector).map(_.asInstanceOf[RunningConnector[T]])
 
-  def apply[In, Out](connector: Connector[In, Out]): RunningConnector[In, Out] =
-    connectors(connector).asInstanceOf[RunningConnector[In, Out]]
+  def apply[T](connector: Connector[T]): RunningConnector[T] =
+    connectors(connector).asInstanceOf[RunningConnector[T]]
 }
 
