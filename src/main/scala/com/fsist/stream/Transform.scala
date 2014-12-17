@@ -70,16 +70,16 @@ object Transform {
     * the upstream component from producing them, which may be expensive. */
   def take[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    val counter = new AtomicLong(count)
+    @volatile var counter : Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
-        val counted = counter.decrementAndGet()
+        counter -= 1
 
         // Prevent eventual wraparound
-        if (counted < -100000000000L) counter.set(0)
+        if (counter < -100000000000L) counter = -1
 
-        if (counted < 0) Seq.empty else Seq(a)
+        if (counter < 0) Seq.empty else Seq(a)
       }
     }
 
@@ -88,16 +88,16 @@ object Transform {
 
   def drop[T](count: Long)
              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
-    val counter = new AtomicLong(count)
+    @volatile var counter : Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
       override def apply(a: T): Seq[T] = {
-        val counted = counter.decrementAndGet()
+        counter -= 1
 
         // Prevent eventual wraparound
-        if (counted < -100000000000L) counter.set(0)
+        if (counter < -100000000000L) counter = -1
 
-        if (counted < 0) Seq(a) else Seq.empty
+        if (counter < 0) Seq(a) else Seq.empty
       }
     }
 
