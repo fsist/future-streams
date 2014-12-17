@@ -225,4 +225,6 @@ These minor features or combinators are no longer directly supported (most have 
 2.  `Source.flatten`, `Sink.flatten` and `Pipe.flatten`, which convert a `Future[Source]` to a `Source` etc., are no
     longer available. All stream components need to exist concretely when the stream is materialized.
     It would be possible to implement `flatten` in the future-streams library core, but so far I'm trying to do without.
-
+3.  Adapters for java.io and java.nio are no longer included, because they are not part of the core concern of this library.
+    (They are still just as easy to write.)
+    
