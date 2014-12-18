@@ -20,20 +20,6 @@ private[stream] trait SinkBase[-In] extends Sink[In]
   * See the README for the semantics of the three onXxx functions.
   */
 sealed trait StreamOutput[-In, +Res] extends Sink[In] {
-  /** Materializes the stream, including all components linked (transitively) to this one, and starts running it.
-    *
-    * The same result is produced no matter which stream component is used to call `build`.
-    *
-    * This method may only be called once per stream (see README on the subject of reusing components).
-    */
-  def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
-
-  /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
-  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
-
-  /** A shortcut method that calls `build` and returns the future result produced by this component. */
-  def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
-
   /** Called on each input element, non-concurrently with itself and onComplete. */
   def onNext: Func[In, Unit]
 
@@ -48,6 +34,12 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
     * This is called *concurrently* with onNext and onComplete.
     */
   def onError: Func[Throwable, Unit]
+
+  /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
+  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
+
+  /** A shortcut method that calls `build` and returns the future result produced by this component. */
+  def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 }
 
 /** A trait that allows implementing a custom StreamOutput that processes items synchronously.

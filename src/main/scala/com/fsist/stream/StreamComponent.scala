@@ -1,8 +1,8 @@
 package com.fsist.stream
 
-import com.fsist.stream.run.FutureStreamBuilder
+import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 
-import scala.concurrent.ExecutionContext
+import scala.concurrent.{Future, ExecutionContext}
 
 /** Common marker trait of stream components: Source and Sink.
   *
@@ -14,6 +14,14 @@ sealed trait StreamComponent {
 
   // Register on creation
   builder.register(this)
+
+  /** Materializes the stream, including all components linked (transitively) to this one, and starts running it.
+    *
+    * The same result is produced no matter which stream component is used to call `build`.
+    *
+    * This method may only be called once per stream (see README on the subject of reusing components).
+    */
+  def build()(implicit ec: ExecutionContext): RunningStream = builder.run()
 }
 
 /** This trait allows extending the sealed StreamComponent trait inside this package. */
