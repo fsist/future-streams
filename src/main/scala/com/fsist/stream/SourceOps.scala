@@ -176,6 +176,13 @@ trait SourceOps[+Out] {
     to(output)
   }
 
+  // Sink.discard
+
+  def discard(): StreamOutput[Out, Unit] = {
+    val output = Sink.discard[Out]
+    to(output)
+  }
+
   // Sink.foldLeft
 
   def foldLeft[Super >: Out, Res](init: Res)
