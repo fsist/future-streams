@@ -133,7 +133,7 @@ object Sink {
   def discard[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Unit] =
     SimpleOutput(builder, Func.nop, Func.pass, Func.nop)
 
-  def foldLeft[In, Res](init: Res)(onNext: Func[(In, Res), Res],
+  def foldLeft[In, Res](init: Res)(onNext: Func[(Res, In), Res],
                                    onError: Func[Throwable, Unit] = Func.nop)
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
     val (userOnNext, userOnError) = (onNext, onError)
@@ -144,7 +144,7 @@ object Sink {
 
       private var state: Res = init
 
-      override def onNext: Func[In, Unit] = SyncFunc((in: In) => (in, state)) ~> userOnNext ~> SyncFunc((st: Res) => state = st)
+      override def onNext: Func[In, Unit] = SyncFunc((in: In) => (state, in)) ~> userOnNext ~> SyncFunc((st: Res) => state = st)
 
       override def onError: Func[Throwable, Unit] = userOnError
 

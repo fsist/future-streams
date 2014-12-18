@@ -178,7 +178,7 @@ trait SourceOps[+Out] {
 
   // Sink.discard
 
-  def discard(): StreamOutput[Out, Unit] = {
+  def discard(): StreamOutput[_ <: Out, Unit] = {
     val output = Sink.discard[Out]
     to(output)
   }
@@ -186,7 +186,7 @@ trait SourceOps[+Out] {
   // Sink.foldLeft
 
   def foldLeft[Super >: Out, Res](init: Res)
-                                 (onNext: (Super, Res) => Res,
+                                 (onNext: (Res, Super) => Res,
                                   onError: Throwable => Unit = Func.nop)
                                  (implicit ec: ExecutionContext): StreamOutput[Super, Res] = {
     val sink = Sink.foldLeft(init)(Function.tupled(onNext), onError)(builder, ec)
@@ -194,7 +194,7 @@ trait SourceOps[+Out] {
   }
 
   def foldLeftAsync[Super >: Out, Res](init: Res)
-                                      (onNext: ((Super, Res)) => Future[Res],
+                                      (onNext: ((Res, Super)) => Future[Res],
                                        onError: Throwable => Future[Unit] = Func.nopAsyncLiteral)
                                       (implicit ec: ExecutionContext): StreamOutput[Super, Res] = {
     val sink = Sink.foldLeft(init)(AsyncFunc(onNext), AsyncFunc(onError))(builder, ec)
@@ -202,7 +202,7 @@ trait SourceOps[+Out] {
   }
 
   def foldLeftFunc[Super >: Out, Res](init: Res)
-                                     (onNext: Func[(Super, Res), Res],
+                                     (onNext: Func[(Res, Super), Res],
                                       onError: Func[Throwable, Unit] = Func.nop)
                                      (implicit ec: ExecutionContext): StreamOutput[Super, Res] = {
     val sink = Sink.foldLeft[Super, Res](init)(onNext, onError)(builder, ec)
