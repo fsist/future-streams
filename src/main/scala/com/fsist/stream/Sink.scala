@@ -192,5 +192,17 @@ object Sink {
       override def onComplete: Func[Unit, In[Elem]] = m.result()
     }
   }
+
+  /** Extract the head of the stream and discard the rest. The stream will fail if it is empty. */
+  def head[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, In] = {
+    var result: Option[In] = None
+    SimpleOutput(builder, (in: In) => if (result.isEmpty) result = Some(in), result.get, Func.nop)
+  }
+
+  /** Extract the head of the stream and discard the rest. Returns None if the stream was empty. */
+  def headOption[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Option[In]] = {
+    var result: Option[In] = None
+    SimpleOutput(builder, (in: In) => if (result.isEmpty) result = Some(in), result, Func.nop)
+  }
 }
 

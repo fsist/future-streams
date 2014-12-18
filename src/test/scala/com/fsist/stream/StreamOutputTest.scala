@@ -59,4 +59,22 @@ class StreamOutputTest extends FunSuite with StreamTester {
     val result = Source.from(data).concat().buildResult().futureValue
     assert(result == data.toList.flatten, "Concatenated all input lists")
   }
+
+  test("head") {
+    val data = 1 to 10
+    val result = Source.from(data).head().buildResult().futureValue
+    assert(result == data.head)
+
+    val result2 = Source.empty.head.buildResult()
+    awaitFailure[NoSuchElementException](result2, "head should fail on an empty stream")
+  }
+
+  test("headOpt") {
+    val data = 1 to 10
+    val result = Source.from(data).headOption().buildResult().futureValue
+    assert(result == data.headOption)
+
+    val result2 = Source.empty.headOption.buildResult().futureValue
+    assert(result2 == None, "headOption of empty stream")
+  }
 }

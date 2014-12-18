@@ -194,6 +194,20 @@ trait SourceOps[+Out] {
     to(output)
   }
 
+  // Sink.head
+
+  def head(): StreamOutput[Out@uncheckedVariance, Out] = {
+    val output = Sink.head[Out]
+    to(output)
+  }
+
+  // Sink.headOption
+
+  def headOption(): StreamOutput[Out@uncheckedVariance, Option[Out]] = {
+    val output = Sink.headOption[Out]
+    to(output)
+  }
+
   // Connector.split
 
   def split(outputCount: Int, outputChooser: Out => BitSet)
