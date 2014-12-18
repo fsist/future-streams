@@ -40,6 +40,60 @@ final case class NopTransform[T](builder: FutureStreamBuilder) extends Transform
   override def onError: Func[Throwable, Unit] = Func.nop
 }
 
+/** Common supertrait of the non-sealed traits the user can extend to implement a Transform. */
+sealed trait UserTransform[-In, +Out] extends Transform[In, Out] {
+  override def builder: FutureStreamBuilder = new FutureStreamBuilder
+
+  final override def onError: Func[Throwable, Unit] = Func(th => onError(th))
+
+  /** Called on stream failure. See the README for the semantics. */
+  def onError(throwable: Throwable) : Unit = ()
+}
+
+/** Implement this trait (at least the onNext method) to create a new synchronous one-to-one Transform. */
+trait SyncSingleTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[In, Out] {
+  final override def apply(in: In): Out = onNext(in)
+
+  /** Map each successive stream element. See the README for detailed semantics. */
+  def onNext(in: In): Out
+
+  /** Called when the component completes. See the README for detailed semantics. */
+  def onComplete(): Unit = ()
+}
+
+/** Implement this trait (at least the onNext method) to create a new asynchronous one-to-one Transform. */
+trait AsyncSingleTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFunc[In, Out] {
+  final override def apply(in: In)(implicit ec: ExecutionContext): Future[Out] = onNext(in)
+
+  /** Map each successive stream element. See the README for detailed semantics. */
+  def onNext(in: In)(implicit ec: ExecutionContext): Future[Out]
+
+  /** Called when the component completes. See the README for detailed semantics. */
+  def onComplete(): Unit = ()
+}
+
+/** Implement this trait (at least the onNext method) to create a new synchronous one-to-one Transform. */
+trait SyncManyTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[In, Iterable[Out]] {
+  final override def apply(in: In): Iterable[Out] = onNext(in)
+
+  /** Map each successive stream element. See the README for detailed semantics. */
+  def onNext(in: In): Iterable[Out]
+
+  /** Called when the component completes. See the README for detailed semantics. */
+  def onComplete(): Unit = ()
+}
+
+/** Implement this trait (at least the onNext method) to create a new synchronous one-to-many Transform. */
+trait AsyncManyTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFunc[In, Iterable[Out]] {
+  final override def apply(in: In)(implicit ec: ExecutionContext): Future[Iterable[Out]] = onNext(in)
+
+  /** Map each successive stream element. See the README for detailed semantics. */
+  def onNext(in: In)(implicit ec: ExecutionContext): Future[Iterable[Out]]
+
+  /** Called when the component completes. See the README for detailed semantics. */
+  def onComplete(): Unit = ()
+}
+
 /** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
 final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Out],
                                             onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out]
@@ -140,8 +194,8 @@ object Transform {
     * The emitted sequences are the same as the original ones, except for the last one, which is possibly truncated.
     */
   def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
-                                                      (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                       builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+                                                         (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
     var remaining: Long = count
     flatMap((input: Coll[Elem]) => {
       if (remaining <= 0) List.empty

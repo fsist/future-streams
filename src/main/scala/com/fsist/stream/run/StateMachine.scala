@@ -210,24 +210,44 @@ private[run] object StateMachine extends Logging {
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
-      val afterCompleting = Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
+      val afterCompleting = Func(completionPromise.success(())) ~> Func(())
 
-      transform match {
+      val (onNext, onComplete) = transform match {
         case NopTransform(builder) =>
           throw new IllegalArgumentException("NopTransform nodes should be eliminated by the stream builder")
 
-        case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
-          val onNext = trOnNext ~> consumerOnNext composeFailure (graph.failGraph)
-          val onComplete = trOnComplete ~> consumerOnComplete ~> afterCompleting
+        case sync : SyncSingleTransform[In, Out] =>
+          val onNext = sync ~> consumerOnNext
+          val onComplete = Func(sync.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
 
-          Consumer(onNext, onComplete)
+        case async : AsyncSingleTransform[In, Out] =>
+          val onNext = async ~> consumerOnNext
+          val onComplete = Func(async.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
+          val onNext = trOnNext ~> consumerOnNext
+          val onComplete = trOnComplete ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case sync : SyncManyTransform[In, Out] =>
+          val onNext = sync ~> Func.foreach(consumerOnNext)
+          val onComplete = Func(sync.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case async : AsyncManyTransform[In, Out] =>
+          val onNext = async ~> Func.foreach(consumerOnNext)
+          val onComplete = Func(async.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
 
         case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
           val onNext = trOnNext ~> Func.foreach(consumer.onNext)
-          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete ~> afterCompleting
-
-          Consumer(onNext, onComplete)
+          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          (onNext, onComplete)
       }
+
+      Consumer(onNext composeFailure(graph.failGraph), onComplete ~> afterCompleting composeFailure(graph.failGraph))
     }
   }
 

@@ -112,6 +112,94 @@ failing component. This happens *before* the execution of the `onError` handler 
 A stream can also be failed deliberately from the outside by calling `RunningStream.fail(throwable)`. This causes the 
 same behavior as if a stream component had failed with this exception.
 
+## Implementing stream components
+
+Many components can be composed using the constructors and transformation methods included in the library, but you can
+also implement your own `StreamInput`s, `StreamOutput`s and `Transform`ers.
+
+There are several ways to implement each kind of component, listed below.
+
+One way is to provide `Func` instances for the most-general constructor of each component type. These are `Source.generate`,
+`Sink.foreach`, `Transform.map` and `Transform.flatMap`. You can create these `Func` instances either by constructing
+them directly or by implementing the `SyncFunc` and `AsyncFunc` traits.
+
+Another way is to implement one of several traits which represent the same logic as these constructors in methods instead
+of functions. This can lead to more readable code as well as fewer closures and Scala functions, and so is the preferred
+approach for complex or stateful implementations.
+
+The traits have separate synchronous and asynchronous variants. They are:
+
+1.  `SyncStreamInput` and `AsyncStreamInput`, corresponding to `Source.genereate`.
+2.  `SyncStreamOutput` and `AsyncStreamOutput`, corresponding to `Sink.foreach`.
+3.  `SyncSingleTransform` and `AsyncSingleTransform`, corresponding to `Transform.map` and the `SingleTransform` case class.
+4.  `SyncManyTransform` and `AsyncManyTransform`, corresponding to `Transform.flatMap` and the `ManyTransform` case class.
+
+### Constructing Funcs
+
+There are implicit conversions defined on `Func`, `SyncFunc` and `AsyncFunc` from Scala functions (and methods).
+If you already have your logic written out, and it's a pure function, it's easiest to convert it to a Func this way.
+
+These are all equivalent:
+
+    val func: Func[Int, String] = (i: Int) => i.toString
+
+    val func2 = Func((i: Int) => i.toString)
+
+    val func3 = Func[Int, String](_.toString)
+
+    def method(i: Int): String = i.toString
+    val func4 = Func(method(_))
+
+You can also create functions that discard their input. This produces a `Func[Any, String]`:
+
+    val func5 = Func("foo")
+
+In all these examples, the value (and the inferred type) is not just a generic `Func` but a `SyncFunc`.
+
+You can also create asynchronous functions by invoking `AsyncFunc` explicitly:
+
+    val func6 = AsyncFunc((i: Int) => Future { i.toString })
+
+Note that if you try to write:
+
+    val func7 = Func((i: Int) => Future { i.toString })
+
+You won't get an `AsyncFunc[Int, String]`. Instead you'll get a `SyncFunc[Int, Future[String]]`.
+
+There's one more thing to note about constructing `Func`s. A typical asynchronous method signature takes an implicit
+ExecutionContext:
+
+    def method2(i: Int)(implicit ec: ExecutionContext): Future[String]
+
+The corresponding function signature is `Int => ExecutionContext => Future[String]`. If you have an existing Scala
+function or method with this signature, you can convert it to an `AsyncFunc` using the constructor
+`AsyncFunc.withEc(method2)`. Then the target method will receive the ExecutionContext passed to `AsyncFunc.apply`.
+
+If instead you use the constructor shown above (`AsyncFunc.apply(func: A => Future[B])`), then your asynchronous function
+or method won't be given an ExecutionContext, and will have to provide its own. This is usually a bad idea, but sometimes
+it doesn't matter, because you know the same ExecutionContext is being passed to many objects in the same scope.
+
+### Implementing Funcs
+
+As an alternative to the above, you can also implement `Func`s as traits. This is more verbose, but is also more efficient,
+because it uses methods and doesn't create extra Scala functions.
+
+The usual reason for doing this is when your function isn't pure, but needs to maintain state between calls. This state
+can then be stored in private fields of the new class extending a Func trait. It also allows you to break up a
+complex function into several private methods.
+
+You need to implement one of these traits:
+
+    trait SyncFunc[-A, +B] {
+      def apply(a: A): B
+    }
+
+    trait AsyncFunc[-A, +B] {
+      def apply(a: A)(implicit ec: ExecutionContext): Future[B]
+    }
+
+
+
 ## Examples
 
 ### A simple processing pipeline
@@ -171,8 +259,6 @@ In this example, we might have various stream transformations available:
 And then user code could compose them generically:
 
     val transforms: Seq[Pipe[Int, Int]] = ???
-
-    
 
 ## Low-level detail
 

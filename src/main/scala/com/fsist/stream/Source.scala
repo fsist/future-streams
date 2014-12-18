@@ -130,3 +130,15 @@ object Source {
   /** Creates a Source that produces no elements. This is just an alias for `apply`. */
   def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = apply()
 }
+
+object Test {
+
+  val func: Func[Int, String] = (i: Int) => i.toString
+
+  val func2 = Func((i: Int) => i.toString)
+
+  val func3 = Func[Int, String](_.toString)
+
+  def method(i: Int): String = i.toString
+  val func4 = Func[Int, String](method(_))
+}
