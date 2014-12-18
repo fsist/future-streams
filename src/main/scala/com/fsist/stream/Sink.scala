@@ -133,6 +133,10 @@ object Sink {
                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)
 
+  /** A sink that discards its output and calculates nothing. */
+  def discard[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Unit] =
+    SimpleOutput(builder, Func.nop, Func.pass, Func.nop)
+
   def foldLeft[In, Res](init: Res)(onNext: Func[(In, Res), Res],
                                    onError: Func[Throwable, Unit] = Func.nop)
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
