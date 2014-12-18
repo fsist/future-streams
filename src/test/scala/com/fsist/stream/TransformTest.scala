@@ -69,7 +69,7 @@ class TransformTest extends FunSuite with StreamTester {
   }
 
   test("MultiTransform completion promise is fulfilled") {
-    val tr = Transform.flatMap((i: Int) => Seq(i))
+    val tr = Transform.flatMap[Int, Int]((i: Int) => Seq(i))
     val stream = Source(1, 2, 3).to(tr).foreach(Func.nop).build()
     stream(tr).completion.futureValue(Timeout(1.second))
   }
@@ -99,5 +99,11 @@ class TransformTest extends FunSuite with StreamTester {
     val range = 1 to 10
     val result = Source.from(range).transform(Transform.nop[Int]).collect[List].buildResult().futureValue
     assert(result == range)
+  }
+
+  test("concat") {
+    val range = 1 to 10
+    val result = Source.from(range.grouped(3)).transform(Transform.concat()).collect[List]().buildResult().futureValue
+    assert(result == List(range))
   }
 }

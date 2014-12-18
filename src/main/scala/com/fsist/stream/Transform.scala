@@ -124,9 +124,9 @@ object Transform {
                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, Func.nop, Func.nop)
 
-  def flatMap[In, Out](mapper: Func[In, Iterable[Out]])
+  def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Iterable.empty[Out])
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
-    MultiTransform(builder, mapper, Iterable.empty[Out], Func.nop)
+    MultiTransform(builder, mapper, onComplete, Func.nop)
 
   def filter[In](filter: Func[In, Boolean])
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {
@@ -197,7 +197,7 @@ object Transform {
                                                          (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
                                                           builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
     var remaining: Long = count
-    flatMap((input: Coll[Elem]) => {
+    flatMap[Coll[Elem], Coll[Elem]]((input: Coll[Elem]) => {
       if (remaining <= 0) List.empty
       else {
         val size = input.size
@@ -223,7 +223,7 @@ object Transform {
                                                          (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
                                                           builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
     var remaining: Long = count
-    flatMap((input: Coll[Elem]) => {
+    flatMap[Coll[Elem], Coll[Elem]]((input: Coll[Elem]) => {
       if (remaining <= 0) List(input)
       else {
         val size = input.size
@@ -238,5 +238,27 @@ object Transform {
         }
       }
     })
+  }
+
+  /** Concatenate all input data into one large collection of the same type. When the input terminates, emit the collection
+    * as a single element downstream.
+    *
+    * Works only if the input type `Coll[Elem]` is some standard Scala collection with a `CanBuildFrom`.
+    */
+  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
+                                                        builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+    def b = builder
+    new SyncManyTransform[Coll[Elem], Coll[Elem]] {
+      override def builder: FutureStreamBuilder = b
+
+      private val m = cbf.apply()
+
+      override def onNext(in: Coll[Elem]): Iterable[Coll[Elem]] = {
+        m ++= in
+        Iterable.empty
+      }
+
+      override def onComplete(): Iterable[Coll[Elem]] = Iterable(m.result())
+    }
   }
 }

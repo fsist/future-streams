@@ -1,5 +1,6 @@
 package com.fsist.stream
 
+import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, Func}
 
@@ -40,17 +41,18 @@ trait SourceOps[+Out] {
 
   // Transform.flatMap
 
-  def flatMap[Next](mapper: Out => Iterable[Next])
+  def flatMap[Next](mapper: Out => Iterable[Next], onComplete: => Iterable[Next] = Iterable.empty)
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
-    transform(Transform.flatMap(mapper))
+    transform(Transform.flatMap(mapper, onComplete))
 
-  def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]])
+  def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]],
+                         onComplete: => Future[Iterable[Next]] = FastFuture.successful(Iterable.empty))
                         (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
-    transform(Transform.flatMap(AsyncFunc(mapper)))
+    transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
-  def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]])
+  def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]], onComplete: Func[Unit, Iterable[Next]] = Func(Iterable.empty))
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Source[Next] =
-    transform(Transform.flatMap(mapper))
+    transform(Transform.flatMap(mapper, onComplete))
 
   // Transform.filter
 
