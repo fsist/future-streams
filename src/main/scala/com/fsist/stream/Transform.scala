@@ -262,22 +262,24 @@ object Transform {
   /** Concatenates all input data into one large collection of the same type. When the input terminates, emit the collection
     * as a single element downstream.
     *
-    * Works only if the input type `Coll[Elem]` is some standard Scala collection with a `CanBuildFrom`.
+    * This works both if the input type Coll is generic (Coll[Elem]), like the standard scala collections, and if it
+    * isn't, like akka.util.ByteString.
     */
-  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+  def concat[Elem, Coll]()(implicit ev: Coll <:< TraversableOnce[Elem],
+                           cbf: CanBuildFrom[Nothing, Elem, Coll],
+                           builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
     def b = builder
-    new SyncManyTransform[Coll[Elem], Coll[Elem]] {
+    new SyncManyTransform[Coll, Coll] {
       override def builder: FutureStreamBuilder = b
 
       private val m = cbf.apply()
 
-      override def onNext(in: Coll[Elem]): Iterable[Coll[Elem]] = {
+      override def onNext(in: Coll): Iterable[Coll] = {
         m ++= in
         Iterable.empty
       }
 
-      override def onComplete(): Iterable[Coll[Elem]] = Iterable(m.result())
+      override def onComplete(): Iterable[Coll] = Iterable(m.result())
     }
   }
 

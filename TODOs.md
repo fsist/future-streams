@@ -20,3 +20,10 @@ TODOs:
 - Add trait Pipe[In, Out] which can represent any sink-with-source. It might be a simple Transform, or it might
   have more complex internal structure made of multiple components.
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README
+
+- Since I've moved all single-result-producing functions like head / collect / concat to Transform, I should probably
+  move Sink.foldLeft too. So StreamOutput is only left to 1) produce a result, usually using `single` and 2) have side
+  effects using foreach.
+
+- I really doubt if ALL my uses of @uncheckedVariance are legal
+

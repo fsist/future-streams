@@ -3,6 +3,7 @@ package com.fsist.stream
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.collection.immutable
 import scala.concurrent.duration._
 
 class TransformTest extends FunSuite with StreamTester {

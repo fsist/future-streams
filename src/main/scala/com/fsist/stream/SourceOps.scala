@@ -49,7 +49,7 @@ trait SourceOps[+Out] {
                          onComplete: => Future[Iterable[Next]] = FastFuture.successful(Iterable.empty)): Source[Next] =
     transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
-  def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]], 
+  def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]],
                         onComplete: Func[Unit, Iterable[Next]] = Func(Iterable.empty)): Source[Next] =
     transform(Transform.flatMap(mapper, onComplete))
 
@@ -130,10 +130,10 @@ trait SourceOps[+Out] {
 
   // Transform.concat
 
-  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[_ <: Out, Coll[Elem]] = {
-    val tr = Transform.concat()(cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Coll[Elem]]])
+  def concat[Elem, Super >: Out]()(implicit ev: Super <:< TraversableOnce[Elem],
+                                   cbf: CanBuildFrom[Nothing, Elem, Super]): Transform[_ <: Out, Super] = {
+    val tr = Transform.concat[Elem, Super]() //(ev, cbf, builder)
+    transform(tr.asInstanceOf[Transform[Out, Super]])
   }
 
   // Transform.head
