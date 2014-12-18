@@ -213,6 +213,9 @@ private[run] object StateMachine extends Logging {
       val afterCompleting = Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
 
       transform match {
+        case NopTransform(builder) =>
+          throw new IllegalArgumentException("NopTransform nodes should be eliminated by the stream builder")
+
         case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
           val onNext = trOnNext ~> consumerOnNext composeFailure (graph.failGraph)
           val onComplete = trOnComplete ~> consumerOnComplete ~> afterCompleting

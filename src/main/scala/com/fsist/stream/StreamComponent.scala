@@ -4,7 +4,7 @@ import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 
 import scala.concurrent.{Future, ExecutionContext}
 
-/** Common marker trait of stream components: Source and Sink.
+/** Common marker trait of stream components: Source, Sink, Transform, etc.
   *
   * NOTE: the trait constructor registers this instance with the StreamBuilder returned by `builder`!
   */

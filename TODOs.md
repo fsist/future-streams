@@ -17,3 +17,6 @@ TODOs:
 - Convenience xxxAsync constructors take functions A => Future[B] instead of A => ExecutionContext => Future[B]
   because I can't figure out the syntax for an anonymous function taking implicit arguments
 - Add xxxAsync/xxx/xxxFunc triplets to all appropriate constructors on Sink, Source, Transform (matching SourceOps)
+- Add trait Pipe[In, Out] which can represent any sink-with-source. It might be a simple Transform, or it might
+  have more complex internal structure made of multiple components.
+

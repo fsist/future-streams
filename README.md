@@ -42,6 +42,9 @@ There are four main node types:
 4.  A `Connector[In, Out]` is a special node type which can connect to more than one upstream or downstream node.
     This serves to fan-out or fan-in stream connections. The Connector doesn't extend `Source[In] with Sink[Out]`
     because it isn't a single Source or Sink; instead it makes multiple Sources and Sinks available as methods.
+
+There is also an auxiliary type called `Pipe[In, Out]`, which represents a Sink linked to a Source with a black box
+in the middle. It can abstract away sub-graphs of the stream model which are already internally connected.
     
 ### Modeling and running the stream
 
@@ -111,7 +114,7 @@ same behavior as if a stream component had failed with this exception.
 
 ## Examples
 
-A simple processing pipeline:
+### A simple processing pipeline
 
     Source.from(1 to 100).map(_ + 1).foreach(println(_)).buildResult()
     
@@ -119,6 +122,8 @@ This returns a `Future[Unit]` which is the result of the `StreamOutput` that cor
 It will complete when all 100 elements have been printed. The whole stream runs synchronously, because it was built
 from synchronous components, so the `println(_)` function will see the `map(_+1)` function on its calling stack.
 However, the stream as a whole still runs in a Future.
+
+### Scatter-gather
 
 Here is a more complex graph, which also demonstrates combining stream parts defined separately:
     
@@ -142,6 +147,32 @@ Here is a more complex graph, which also demonstrates combining stream parts def
 
 The `result` is a `Future[List[Int]]`. The order of elements in it is indeterminate, because the three pipelines after
 `scatter` run in parallel.
+
+### Pipelines
+
+The `Pipe[In, Out]` abstraction allows libraries to provide pipe segments which can then be used as building blocks
+by the user code.
+
+In this example, we might have various stream transformations available:
+
+    trait MyTransform {
+      def apply(): Pipe[Int, Int]
+    }
+
+    class Ceiling(max: Int) extends MyTransform {
+      override def apply(): Pipe[Int, Int] = Pipe(Transform((i: Int) => Math.max(i, max)))
+    }
+
+    object WeirdExample extends MyTransform {
+      override def apply(): Pipe[Int, Int] =
+        Transform((i: Int) => i + 1).pipe(_ / 2).pipe(_ * 3)
+    }
+
+And then user code could compose them generically:
+
+    val transforms: Seq[Pipe[Int, Int]] = ???
+
+    
 
 ## Low-level detail
 
@@ -210,7 +241,8 @@ detail about the old version, these are the major *design* differences:
     take, or return, a Promise in their model, or a user callback in the form of an extra Func, which they can then
     fulfill or call whenever they want to.
 5.  `StreamInput`, `StreamOutput` and the various types of `Transform` and `Connector` all have dedicated implementations
-    in the library core (in subclasses of `StateMachine`). Other abstractions are built on top of that in user code.
+    in the library core (in subclasses of `StateMachine`). The core model traits and classes are all respectively sealed
+    and final. Other abstractions are built on top of that in user code.
     This contrasts with the v1 model, where the only first-class types were `Source` and `Sink`, and all implementations
     had the same status.
     This allows us keep the core implementation simple, fast and correct. The variety of component implementations in v1

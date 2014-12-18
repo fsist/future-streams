@@ -10,6 +10,7 @@ import com.typesafe.scalalogging.slf4j.Logging
 import scala.annotation.tailrec
 import scala.collection.immutable.VectorBuilder
 import scala.concurrent.{Future, Promise, ExecutionContext}
+import scala.util.control.NonFatal
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
 
@@ -58,7 +59,12 @@ class FutureStreamBuilder extends Logging {
     * This doesn't link it to any other components; it's a safety measure that lets us detect any unconnected components
     * when `build` is called.
     */
-  def register(component: StreamComponent): Unit = alterState(_.mapGraph(_ + component))
+  def register(component: StreamComponent): Unit = component match {
+    case Pipe(_, sink, source) =>
+      register(sink)
+      register(source)
+    case other => alterState(_.mapGraph(_ + other))
+  }
 
   private def link(builder: FutureStreamBuilder): Unit = {
     if (!state.get.linked.contains(builder)) {
@@ -69,9 +75,18 @@ class FutureStreamBuilder extends Logging {
 
   /** Irreversibly connects two components together, and possibly links their builders. */
   def connect[In >: Out, Out](source: Source[Out], sink: Sink[In]): Unit = {
-    alterState(_.mapGraph(_ + DiEdge[StreamComponent](source, sink)))
-    if (source.builder ne this) link(source.builder)
-    if (sink.builder ne this) link(sink.builder)
+    val trueSource = source match {
+      case Pipe(_, _, source) => source
+      case other => other
+    }
+    val trueSink = sink match {
+      case Pipe(_, sink, _) => sink
+      case other => other
+    }
+
+    alterState(_.mapGraph(_ + DiEdge[StreamComponent](trueSource, trueSink)))
+    if (trueSource.builder ne this) link(trueSource.builder)
+    if (trueSink.builder ne this) link(trueSink.builder)
   }
 
   private def collectLinkedBuilders(seen: Set[FutureStreamBuilder] = Set.empty,
@@ -89,11 +104,25 @@ class FutureStreamBuilder extends Logging {
         state.merge(st)
     }
 
+  /** Removes Transform.nop nodes from the graph, connecting their inputs and outputs directly. */
+  private def removeNopNodes(graph: ModelGraph) : ModelGraph = {
+    var newGraph = graph
+
+    for (node <- graph.nodes if node.value.isInstanceOf[NopTransform[_]];
+         pred <- node.diPredecessors;
+         succ <- node.diSuccessors) {
+      newGraph = newGraph + DiEdge(pred.value, succ.value) - DiEdge(pred.value, node.value) - DiEdge(node.value, succ.value) - node
+    }
+
+    newGraph
+  }
+
   /** Builds and starts a runnable FutureStream from the current graph. */
   def run()(implicit ec: ExecutionContext): RunningStream = {
     val st = mergeLinkedStates()
     validateBeforeBuilding(st)
-    val model = st.graph
+
+    val model = removeNopNodes(st.graph)
 
     // Declare here, set later, and graphOps will access it later from its lazy val
     var stateMachinesVector : Vector[StateMachine] = Vector.empty
@@ -183,6 +212,9 @@ class FutureStreamBuilder extends Logging {
     for (machine <- allMachines.values if machine.isInstanceOf[RunnableMachine]) {
       Future {
         machine.asInstanceOf[RunnableMachine].run()
+      } recover {
+        case NonFatal(e) =>
+          graphOps.failGraph(e)
       }
     }
 
@@ -197,6 +229,10 @@ class FutureStreamBuilder extends Logging {
     //    require(model.isConnected, "Stream graph must be connected")
 
     require(model.isAcyclic, "Cycles are not yet supported")
+
+    for (node <- model.nodes.toOuter) {
+      require (! node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
+    }
 
     for (DiEdge(from, to) <- model.edges.toOuter) {
       require(model.contains(from), s"Graph must contain all linked nodes, missing $from (linked to $to)")

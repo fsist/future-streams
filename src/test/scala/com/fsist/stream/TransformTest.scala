@@ -94,4 +94,10 @@ class TransformTest extends FunSuite with StreamTester {
     val result = Source.from(input).dropElements(5).collect[List]().buildResult().futureValue
     assert(result == List(List(6), List(7, 8, 9), List(10)))
   }
+
+  test("nop") {
+    val range = 1 to 10
+    val result = Source.from(range).transform(Transform.nop[Int]).collect[List].buildResult().futureValue
+    assert(result == range)
+  }
 }

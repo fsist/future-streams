@@ -15,6 +15,29 @@ sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
   def builder: FutureStreamBuilder
 
   def onError: Func[Throwable, Unit]
+
+  /** Irreversibly connects to the `pipe`'s input Source.
+    *
+    * Returns a new pipe appending `pipe` to this element.
+    */
+  def pipe[Next](pipe: Pipe[Out, Next]): Pipe[In, Next] = {
+    connect(pipe.sink)
+    Pipe(builder, this, pipe.source)
+  }
+
+  /** Irreversibly connects to this `next` transform
+    *
+    * Returns a new pipe containing `this` and the `next` transform.
+    */
+  def pipe[Next](next: Transform[Out, Next]): Pipe[In, Next] = {
+    connect(next)
+    Pipe(builder, this, next)
+  }
+}
+
+/** A transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
+final case class NopTransform[T](builder: FutureStreamBuilder) extends Transform[T, T] {
+  override def onError: Func[Throwable, Unit] = Func.nop
 }
 
 /** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
@@ -40,6 +63,9 @@ object MultiTransform {
 }
 
 object Transform {
+  /** A transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
+  def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = NopTransform[T](builder)
+
   def map[In, Out](mapper: Func[In, Out])
                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, Func.nop, Func.nop)
