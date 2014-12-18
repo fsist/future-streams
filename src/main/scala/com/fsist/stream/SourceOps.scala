@@ -162,11 +162,13 @@ trait SourceOps[+Out] {
 
   // For the legality of the use of @uncheckedVariance, compare TraversableOnce.To[M]
   def collect[M[_]]()(implicit cbf: CanBuildFrom[Nothing, Out, M[Out@uncheckedVariance]],
-                      builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Out@uncheckedVariance, M[Out@uncheckedVariance]] = {
+                      builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, M[Out@uncheckedVariance]] = {
     val collector = Sink.collect()(cbf, builder)
     to(collector)
   }
 
+  /** This overload of `collect` lets you specify an explicit supertype bound of `Out` (so you cannot upcast past it)
+    * and in exchange get a precise non-existential return type. */
   def collectSuper[Super >: Out, M[_]]()(implicit cbf: CanBuildFrom[Nothing, Super, M[Super]],
                                          builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Super, M[Super]] = {
     val collector = Sink.collect()(cbf, builder)
@@ -189,21 +191,21 @@ trait SourceOps[+Out] {
 
   def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit ev: Out@uncheckedVariance =:= Coll[Elem],
                                                           cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[Out@uncheckedVariance, Out] = {
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[_ <: Out, Out] = {
     val output = Sink.concat()(cbf, builder).asInstanceOf[StreamOutput[Out, Out]]
     to(output)
   }
 
   // Sink.head
 
-  def head(): StreamOutput[Out@uncheckedVariance, Out] = {
+  def head(): StreamOutput[_ <: Out, Out] = {
     val output = Sink.head[Out]
     to(output)
   }
 
   // Sink.headOption
 
-  def headOption(): StreamOutput[Out@uncheckedVariance, Option[Out]] = {
+  def headOption(): StreamOutput[_ <: Out, Option[Out]] = {
     val output = Sink.headOption[Out]
     to(output)
   }
