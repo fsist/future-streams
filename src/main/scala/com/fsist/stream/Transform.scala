@@ -91,7 +91,7 @@ trait AsyncManyTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFun
   def onNext(in: In)(implicit ec: ExecutionContext): Future[Iterable[Out]]
 
   /** Called when the component completes. See the README for detailed semantics. */
-  def onComplete(): Future[Iterable[Out]] = Future.successful(Iterable.empty)
+  def onComplete()(implicit ec: ExecutionContext): Future[Iterable[Out]] = Future.successful(Iterable.empty)
 }
 
 /** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
