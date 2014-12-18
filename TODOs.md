@@ -19,7 +19,4 @@ TODOs:
 - Add xxxAsync/xxx/xxxFunc triplets to all appropriate constructors on Sink, Source, Transform (matching SourceOps)
 - Add trait Pipe[In, Out] which can represent any sink-with-source. It might be a simple Transform, or it might
   have more complex internal structure made of multiple components.
-- Add SourceOps shortcuts to Transform methods that currently aren't included because methods with the same names exist
-  on Sink. E.g. concat, head, headOpt, and for that matter collect and foldLeft, should have a family of SourceOps shortcuts
-  called, say, extractXxx that produce a Transform with a single output element.
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README

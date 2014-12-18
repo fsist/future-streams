@@ -55,8 +55,6 @@ trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In
 
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
 
-  override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
-
   /** Called to process each successive element in the stream.
     *
     * Equivalent to StreamOutput.onNext. See the README for concurrency issues.
@@ -86,8 +84,6 @@ trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[
   final override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = onNext(in)
 
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
-
-  override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
 
   /** Called to process each successive element in the stream.
     *
@@ -141,7 +137,7 @@ object Sink {
                                    onError: Func[Throwable, Unit] = Func.nop)
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
     val (userOnNext, userOnError) = (onNext, onError)
-    val b = builder
+    def b = builder
 
     new StreamOutput[In, Res] {
       override def builder: FutureStreamBuilder = b
@@ -157,52 +153,24 @@ object Sink {
     }
   }
 
-  /** Collect all input elements in a collection of type `M`, and produce it as the result. */
-  def collect[In, M[_]]()(implicit cbf: CanBuildFrom[Nothing, In, M[In]],
-                          builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, M[In]] = {
-    def b = builder
-    new StreamOutput[In, M[In]] {
-      override def builder: FutureStreamBuilder = b
-
-      private val m = cbf.apply()
-
-      override def onNext: Func[In, Unit] = SyncFunc(m += _)
-
-      override def onError: Func[Throwable, Unit] = Func.nop
-
-      override def onComplete: Func[Unit, M[In]] = m.result()
-    }
-  }
-
-  /** Concatenate all input data into one large collection of the same type. Works only if the input type `In[Elem]`
-    * is some standard Scala collection with a `CanBuildFrom`.
+  /** Extracts the single element of the input stream as the result.
+    *
+    * If the stream is empty, fails with NoSuchElementException.
+    * If the stream contains more than one element, fails with IllegalArgumentException.
     */
-  def concat[Elem, In[Elem] <: TraversableOnce[Elem]]()(implicit cbf: CanBuildFrom[Nothing, Elem, In[Elem]],
-                                                        builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In[Elem], In[Elem]] = {
+  def single[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, In] = {
     def b = builder
-    new StreamOutput[In[Elem], In[Elem]] {
+    new SyncStreamOutput[In, In] {
       override def builder: FutureStreamBuilder = b
+      private var cell: Option[In] = None
 
-      private val m = cbf.apply()
+      override def onNext(in: In): Unit = {
+        if (cell.isEmpty) cell = Some(in)
+        else throw new IllegalArgumentException("More than one element in stream")
+      }
 
-      override def onNext: Func[In[Elem], Unit] = SyncFunc(m ++= _)
-
-      override def onError: Func[Throwable, Unit] = Func.nop
-
-      override def onComplete: Func[Unit, In[Elem]] = m.result()
+      override def complete(): In = cell.getOrElse(throw new NoSuchElementException("Stream was empty"))
     }
-  }
-
-  /** Extract the head of the stream and discard the rest. The stream will fail if it is empty. */
-  def head[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, In] = {
-    var result: Option[In] = None
-    SimpleOutput(builder, (in: In) => if (result.isEmpty) result = Some(in), result.get, Func.nop)
-  }
-
-  /** Extract the head of the stream and discard the rest. Returns None if the stream was empty. */
-  def headOption[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Option[In]] = {
-    var result: Option[In] = None
-    SimpleOutput(builder, (in: In) => if (result.isEmpty) result = Some(in), result, Func.nop)
   }
 }
 

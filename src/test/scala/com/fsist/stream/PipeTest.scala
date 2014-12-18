@@ -10,7 +10,7 @@ class PipeTest extends FunSuite with StreamTester {
 
     val pipe : Pipe[Int, Int] = Transform.map((i: Int) => i + 1)
 
-    val result = source.to(pipe).collect[List].buildResult().futureValue
+    val result = source.to(pipe).collect[List].singleResult().futureValue
     val expected = data.map(_ + 1)
     assert(result == expected)
   }
@@ -28,7 +28,7 @@ class PipeTest extends FunSuite with StreamTester {
 
     val pipe = Pipe(tr1, tr3)
 
-    val result = source.to(pipe).collect[List].buildResult().futureValue
+    val result = source.to(pipe).collect[List].singleResult().futureValue
     val expected = data.map(_ + 3)
     assert(result == expected)
   }
@@ -39,7 +39,7 @@ class PipeTest extends FunSuite with StreamTester {
 
     def pipe = tr.pipe(tr).pipe(tr)
 
-    val result = Source.from(data).through(pipe).collect[List]().buildResult().futureValue
+    val result = Source.from(data).through(pipe).collect[List]().singleResult().futureValue
 
     assert(result == data.map(_ + 3))
   }

@@ -12,8 +12,6 @@ import scala.language.higherKinds
 
 /** A transformation of an element stream. The input and output elements don't always have a 1-to-1 correspondence. */
 sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
-  def builder: FutureStreamBuilder
-
   def onError: Func[Throwable, Unit]
 
   /** Irreversibly connects to the `pipe`'s input Source.
@@ -42,12 +40,10 @@ final case class NopTransform[T](builder: FutureStreamBuilder) extends Transform
 
 /** Common supertrait of the non-sealed traits the user can extend to implement a Transform. */
 sealed trait UserTransform[-In, +Out] extends Transform[In, Out] {
-  override def builder: FutureStreamBuilder = new FutureStreamBuilder
-
   final override def onError: Func[Throwable, Unit] = Func(th => onError(th))
 
   /** Called on stream failure. See the README for the semantics. */
-  def onError(throwable: Throwable) : Unit = ()
+  def onError(throwable: Throwable): Unit = ()
 }
 
 /** Implement this trait (at least the onNext method) to create a new synchronous one-to-one Transform. */
@@ -240,13 +236,36 @@ object Transform {
     })
   }
 
-  /** Concatenate all input data into one large collection of the same type. When the input terminates, emit the collection
+  /** Collects all input elements in a collection of type `M` and emits it when the stream completes. */
+  def collect[In, M[_]]()(implicit cbf: CanBuildFrom[Nothing, In, M[In]],
+                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, M[In]] = {
+    def b = builder
+    new SyncManyTransform[In, M[In]] {
+      override def builder: FutureStreamBuilder = b
+
+      private val m = cbf.apply()
+      private val empty = Iterable.empty[M[In]]
+
+      override def onNext(in: In): Iterable[M[In]] = {
+        m += in
+        empty
+      }
+
+      override def onComplete(): Iterable[M[In]] = {
+        val result = m.result()
+        m.clear()
+        Iterable(result)
+      }
+    }
+  }
+
+  /** Concatenates all input data into one large collection of the same type. When the input terminates, emit the collection
     * as a single element downstream.
     *
     * Works only if the input type `Coll[Elem]` is some standard Scala collection with a `CanBuildFrom`.
     */
   def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                        builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
     def b = builder
     new SyncManyTransform[Coll[Elem], Coll[Elem]] {
       override def builder: FutureStreamBuilder = b
@@ -260,5 +279,45 @@ object Transform {
 
       override def onComplete(): Iterable[Coll[Elem]] = Iterable(m.result())
     }
+  }
+
+  /** Passes on the head of the stream and discards the rest. If the stream is empty, fails with NoSuchElementException. */
+  def head[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Elem] = new SyncManyTransform[Elem, Elem] {
+    override def builder: FutureStreamBuilder = b
+
+    private var passed = false
+
+    override def onNext(in: Elem): Iterable[Elem] = {
+      if (passed) Iterable.empty
+      else {
+        passed = true
+        Iterable(in)
+      }
+    }
+
+    override def onComplete(): Iterable[Elem] =
+      if (passed) Iterable.empty
+      else throw new NoSuchElementException("stream was empty")
+
+    override def toString(): String = "head"
+  }
+
+  /** Passes on the head of the stream wrapped in a `Some` and discards the rest, or passes `None` if the stream is empty. */
+  def headOption[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Option[Elem]] = new SyncManyTransform[Elem, Option[Elem]] {
+    override def builder: FutureStreamBuilder = b
+
+    private var passed = false
+
+    override def onNext(in: Elem): Iterable[Option[Elem]] = {
+      if (passed) Iterable.empty
+      else {
+        passed = true
+        Iterable(Some(in))
+      }
+    }
+
+    override def onComplete(): Iterable[Option[Elem]] =
+      if (passed) Iterable.empty
+      else Iterable(None)
   }
 }

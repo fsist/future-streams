@@ -16,8 +16,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val count = 3
 
     val splitter = Source.from(range).split(count, (i: Int) => BitSet(0))
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    splitter.connectOutputs(sinks)
+
+    val sinks = for (output <- splitter.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -32,8 +34,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val count = 3
 
     val splitter = Source.from(range).split(count, (i: Int) => BitSet(0, 2))
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    splitter.connectOutputs(sinks)
+
+    val sinks = for (output <- splitter.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -49,8 +53,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val random = new Random()
 
     val splitter = Source.from(range).split(count, (i: Int) => BitSet(random.nextInt(3)))
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    splitter.connectOutputs(sinks)
+
+    val sinks = for (output <- splitter.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -67,8 +73,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val count = 3
 
     val splitter = Source.from(range).roundRobin(count)
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    splitter.connectOutputs(sinks)
+
+    val sinks = for (output <- splitter.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -83,8 +91,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val count = 3
 
     val splitter = Source.from(range).tee(3)
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    splitter.connectOutputs(sinks)
+
+    val sinks = for (output <- splitter.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -101,7 +111,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val sources = Vector.fill(count)(Source.from(range))
     val merger = Connector.merge[Int](count)
     merger.connectInputs(sources)
-    val result = merger.output.toList().buildResult().futureValue
+    val result = merger.output.toList().singleResult().futureValue
 
     val expected = Vector.fill(count)(range).flatten
     assert(result.sorted == expected.sorted , "All elements were merged")
@@ -112,8 +122,10 @@ class ConnectorTest extends FunSuite with StreamTester {
     val count = 3
 
     val scatterer = Source.from(range).scatter(3)
-    val sinks = Vector.fill(count)(Sink.collect[Int, List]())
-    scatterer.connectOutputs(sinks)
+
+    val sinks = for (output <- scatterer.outputs) yield {
+      output.collect[List]().single
+    }
 
     val stream = sinks(0).build()
     stream.completion.futureValue
@@ -164,7 +176,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val gatherer = Connector.merge[Int](count)
     gatherer.connectInputs(scatterer.outputs)
 
-    val result = gatherer.output.toList().buildResult().futureValue
+    val result = gatherer.output.toList().singleResult().futureValue
 
     assert(result.sorted == range, "Scatter-gather")
   }
@@ -177,7 +189,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val gatherer = Connector.merge[Int](count)
     gatherer.connectInputs(splitter.outputs)
 
-    val result = gatherer.output.toList().buildResult().futureValue
+    val result = gatherer.output.toList().singleResult().futureValue
 
     assert(result.sorted == range, "Scatter-gather")
   }

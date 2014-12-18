@@ -25,6 +25,10 @@ import scala.language.higherKinds
 trait SourceOps[+Out] {
   self: Source[Out] =>
 
+  // ===================================================================================================================
+  // Transform
+  // ===================================================================================================================
+
   // Transform.map
 
   def map[Next](mapper: Out => Next): Source[Next] =
@@ -83,19 +87,72 @@ trait SourceOps[+Out] {
 
   def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
                                                          (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Out@uncheckedVariance, Out] = {
+                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
     val tr = Transform.takeElements(count)(cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Out]])
+    transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
   }
 
   // Transform.dropElements
 
   def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
                                                          (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Out@uncheckedVariance, Out] = {
+                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
     val tr = Transform.dropElements(count)(cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Out]])
+    transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
   }
+
+  // Transform.collect
+
+  // For the legality of the use of @uncheckedVariance, compare TraversableOnce.To[M]
+  def collect[M[_]]()(implicit cbf: CanBuildFrom[Nothing, Out, M[Out@uncheckedVariance]]): Transform[_ <: Out, M[Out@uncheckedVariance]] = {
+    val tr = Transform.collect()(cbf, builder)
+    transform(tr)
+  }
+
+  /** This overload of `collect` lets you specify an explicit supertype bound of `Out` (so you cannot upcast past it)
+    * and in exchange get a precise non-existential return type. */
+  def collectSuper[Super >: Out, M[_]]()(implicit cbf: CanBuildFrom[Nothing, Super, M[Super]]): Transform[Super, M[Super]] = {
+    val tr = Transform.collect()(cbf, builder)
+    transform(tr)
+  }
+
+  // Shortcuts for Transform.collect
+
+  def toList(): Transform[_ <: Out, List[Out]] = collect[List]()
+
+  def toSeq(): Transform[_ <: Out, Seq[Out]] = collect[Seq]()
+
+  def toIndexedSeq(): Transform[_ <: Out, IndexedSeq[Out]] = collect[IndexedSeq]()
+
+  def toVector(): Transform[_ <: Out, Vector[Out]] = collect[Vector]()
+
+  def toSet[Super >: Out](): Transform[_ <: Out, Set[Super]] = collectSuper[Super, Set]()
+
+  // Transform.concat
+
+  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit ev: Out@uncheckedVariance =:= Coll[Elem],
+                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[_ <: Out, Coll[Elem]] = {
+    val tr = Transform.concat()(cbf, builder)
+    transform(tr.asInstanceOf[Transform[Out, Coll[Elem]]])
+  }
+
+  // Transform.head
+
+  def head(): Transform[_ <: Out, Out] = {
+    val tr = Transform.head[Out]
+    transform(tr)
+  }
+
+  // Transform.headOption
+
+  def headOption(): Transform[_ <: Out, Option[Out]] = {
+    val tr = Transform.headOption[Out]
+    transform(tr)
+  }
+
+  // ===================================================================================================================
+  // Sink
+  // ===================================================================================================================
 
   // Sink.foreach
 
@@ -145,54 +202,27 @@ trait SourceOps[+Out] {
     to(sink)
   }
 
-  // Sink.collect
+  // Sink.single
 
-  // For the legality of the use of @uncheckedVariance, compare TraversableOnce.To[M]
-  def collect[M[_]]()(implicit cbf: CanBuildFrom[Nothing, Out, M[Out@uncheckedVariance]]): StreamOutput[_ <: Out, M[Out@uncheckedVariance]] = {
-    val collector = Sink.collect()(cbf, builder)
-    to(collector)
+  def single(): StreamOutput[_, Out] = {
+    val sink = Sink.single[Out]()
+    to(sink)
   }
 
-  /** This overload of `collect` lets you specify an explicit supertype bound of `Out` (so you cannot upcast past it)
-    * and in exchange get a precise non-existential return type. */
-  def collectSuper[Super >: Out, M[_]]()(implicit cbf: CanBuildFrom[Nothing, Super, M[Super]]): StreamOutput[Super, M[Super]] = {
-    val collector = Sink.collect()(cbf, builder)
-    to(collector)
+  // ===================================================================================================================
+  // Sink + building the result shortcuts
+  // ===================================================================================================================
+
+  // Sink.single + buildResult
+
+  def singleResult()(implicit ec: ExecutionContext): Future[Out] = {
+    val sink = Sink.single[Out]()
+    to(sink).buildResult()
   }
 
-  // Shortcuts for `collect`
-
-  def toList(): StreamOutput[_ <: Out, List[Out]] = collect[List]()
-
-  def toSeq(): StreamOutput[_ <: Out, Seq[Out]] = collect[Seq]()
-
-  def toIndexedSeq(): StreamOutput[_ <: Out, IndexedSeq[Out]] = collect[IndexedSeq]()
-
-  def toVector(): StreamOutput[_ <: Out, Vector[Out]] = collect[Vector]()
-
-  def toSet[Super >: Out](): StreamOutput[_ <: Out, Set[Super]] = collectSuper[Super, Set]()
-
-  // Sink.concat
-
-  def concat[Elem, Coll[Elem] <: TraversableOnce[Elem]]()(implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): StreamOutput[_ <: Out, Out] = {
-    val output = Sink.concat()(cbf, builder).asInstanceOf[StreamOutput[Out, Out]]
-    to(output)
-  }
-
-  // Sink.head
-
-  def head(): StreamOutput[_ <: Out, Out] = {
-    val output = Sink.head[Out]
-    to(output)
-  }
-
-  // Sink.headOption
-
-  def headOption(): StreamOutput[_ <: Out, Option[Out]] = {
-    val output = Sink.headOption[Out]
-    to(output)
-  }
+  // ===================================================================================================================
+  // Connector
+  // ===================================================================================================================
 
   // Connector.split
 

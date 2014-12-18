@@ -198,8 +198,6 @@ You need to implement one of these traits:
       def apply(a: A)(implicit ec: ExecutionContext): Future[B]
     }
 
-
-
 ## Examples
 
 ### A simple processing pipeline
@@ -231,7 +229,7 @@ Here is a more complex graph, which also demonstrates combining stream parts def
     for ((output, input) <- scattered.outputs zip merge.inputs)
       output.flatMap((i: Int) => 1 to i).connect(input)
   
-    val result = merge.output.toList().buildResult()
+    val result = merge.output.toList().singleResult()
 
 The `result` is a `Future[List[Int]]`. The order of elements in it is indeterminate, because the three pipelines after
 `scatter` run in parallel.
@@ -259,6 +257,11 @@ In this example, we might have various stream transformations available:
 And then user code could compose them generically:
 
     val transforms: Seq[Pipe[Int, Int]] = ???
+    val source = Source(1,2,3)
+    val stream = transforms.foldLeft(source){
+      case (src, tr) => src.transform(tr)
+    }
+    val result = stream.collect[List].singleResult
 
 ## Low-level detail
 

@@ -60,8 +60,6 @@ trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] {
   final override def apply(a: Unit): Out = produce()
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
 
-  override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
-
   /** Called to produce each successive element in the stream. Should throw a EndOfStreamException to indicate EOF.
     *
     * Equivalent to StreamInput.producer. See the README for concurrency issues.
@@ -80,8 +78,6 @@ trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out]{
   final override def producer: Func[Unit, Out] = this
   final override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Out] = produce()(ec)
   final override def onError: Func[Throwable, Unit] = SyncFunc((th: Throwable) => onError(th))
-
-  override lazy val builder: FutureStreamBuilder = new FutureStreamBuilder
 
   /** Called to produce each successive element in the stream. Should throw a EndOfStreamException to indicate EOF.
     *

@@ -9,14 +9,14 @@ class StreamInputTest extends FunSuite with StreamTester {
   test("IteratorSource") {
     val range = 1 to 10
     val iter = range.iterator
-    val result = Source.from(iter).toList().buildResult().futureValue
+    val result = Source.from(iter).toList().singleResult().futureValue
 
     assert(result == range, "All items were passed")
   }
 
   test("IterableSource") {
     val range = 1 to 10
-    val result = Source.from(range).toList().buildResult().futureValue
+    val result = Source.from(range).toList().singleResult().futureValue
 
     assert(result == range, "All items were passed")
   }
@@ -26,7 +26,7 @@ class StreamInputTest extends FunSuite with StreamTester {
     val iter = range.iterator
 
     val source = Source.generate(if (iter.hasNext) iter.next() else throw new EndOfStreamException)
-    val result = source.toList().buildResult().futureValue
+    val result = source.toList().singleResult().futureValue
     assert(result == range, "All items were generated")
   }
 
