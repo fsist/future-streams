@@ -27,4 +27,20 @@ TODOs:
 
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 
-- It's annoying to write, most of the time you implement a component by trait,     override implicit def builder: FutureStreamBuilder = new FutureStreamBuilder
+- It's annoying to write, most of the time you implement a component by trait,     override implicit val builder: FutureStreamBuilder = new FutureStreamBuilder
+  Also there's a common mistake where you write "override implicit def builder" and create a new one on every call,
+  which breaks everything.
+
+- Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
+
+These v1 patterns need v2 equivalents + docs: 
+
+- Often library code has to provide a StreamOutput with a non-Unit result. E.g., HashingUtil provides a Sink[ByteString]
+  that calculates a hash. But it may have internal components (i.e. be composed of a Pipe + an actual StreamOutput).
+  This limits it to a Sink type, and not a StreamOutput, but then it doesn't have a result. What to do?
+- Several places in the code use a Pipe.tapOne + Pipe.flatten to decide what to do with the rest of the pipe based on
+  the first observed element. Is there any better solution than just writing a Future-based state machine that supports
+  all options? Maybe with some minimal help a la Actor.become?
+- SprayAckStream inner class AckActor needs to fail the outer sink (= the stream) asynchronously in some cases, 
+  but it only has access to the Sink model, not the running component. The problem is that AckActor is instantiated
+  in a special and ugly way which must be called synchronously from its to-be-Parent actor...
