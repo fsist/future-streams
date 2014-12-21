@@ -330,7 +330,7 @@ object Transform {
   }
   
   /** A pass-through transform that exposes the first element passed via a Future. */
-  def tapOne[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with TapHead[Elem] =
+  def tapHead[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with TapHead[Elem] =
     new SyncSingleTransform[Elem, Elem] with TapHead[Elem] {
       override def builder: FutureStreamBuilder = b
       
