@@ -6,7 +6,7 @@ import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 import scala.collection.generic.CanBuildFrom
-import scala.concurrent.{Future, ExecutionContext}
+import scala.concurrent.{Promise, Future, ExecutionContext}
 
 import scala.language.higherKinds
 
@@ -322,4 +322,24 @@ object Transform {
       if (passed) Iterable.empty
       else Iterable(None)
   }
+
+  /** Returned by `tapOne`. `head` is fulfilled when the first element is passed through, or fulfilled with None if
+    * the stream terminates and was empty. */
+  trait TapHead[Elem] {
+    def head: Future[Option[Elem]]
+  }
+  
+  /** A pass-through transform that exposes the first element passed via a Future. */
+  def tapOne[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with TapHead[Elem] =
+    new SyncSingleTransform[Elem, Elem] with TapHead[Elem] {
+      override def builder: FutureStreamBuilder = b
+      
+      private val promise = Promise[Option[Elem]]()
+      override def head: Future[Option[Elem]] = promise.future
+
+      override def onNext(in: Elem): Elem = {
+        if (! promise.isCompleted) promise.success(Some(in))
+        in
+      }
+    }
 }
