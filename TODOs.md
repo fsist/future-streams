@@ -27,3 +27,4 @@ TODOs:
 
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 
+- It's annoying to write, most of the time you implement a component by trait,     override implicit def builder: FutureStreamBuilder = new FutureStreamBuilder
