@@ -1,6 +1,6 @@
 package com.fsist.stream
 
-import com.fsist.util.concurrent.Func
+import com.fsist.util.concurrent.{BoundedAsyncQueue, AsyncQueue, Func}
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import scala.concurrent.duration._
@@ -34,5 +34,63 @@ class StreamInputTest extends FunSuite with StreamTester {
     val source = Source(1, 2, 3)
     val stream = source.foreach(Func.nop).build()
     stream(source).completion.futureValue(Timeout(1.second))
+  }
+
+  private val impatience = PatienceConfig(200.millis)
+
+  test("from AsyncQueue") {
+    val queue = new AsyncQueue[Option[Int]]
+    
+    val result = Source.from(queue).collect[List].singleResult()
+    awaitTimeout(result)(impatience)
+    
+    queue.enqueue(Some(1))
+    queue.enqueue(Some(2))
+    awaitTimeout(result)(impatience)
+    
+    queue.enqueue(None)
+    assert(result.futureValue == List(1,2))
+  }
+
+  test("from BoundedAsyncQueue") {
+    val queue = new BoundedAsyncQueue[Option[Int]](1)
+
+    val result = Source.from(queue).collect[List].singleResult()
+    awaitTimeout(result)(impatience)
+
+    queue.enqueue(Some(1)).futureValue
+    queue.enqueue(Some(2)).futureValue
+    awaitTimeout(result)(impatience)
+
+    queue.enqueue(None).futureValue
+    assert(result.futureValue == List(1,2))
+  }
+
+  test("Source.pusher") {
+    val pusher = Source.pusher[Int]
+    val result = pusher.collect[List].singleResult()
+
+    awaitTimeout(result)(impatience)
+
+    pusher.push(1)
+    pusher.push(2)
+    awaitTimeout(result)(impatience)
+
+    pusher.complete()
+    assert(result.futureValue == List(1,2))
+  }
+
+  test("Source.asyncPusher") {
+    val pusher = Source.asyncPusher[Int](10)
+    val result = pusher.collect[List].singleResult()
+
+    awaitTimeout(result)(impatience)
+
+    pusher.push(1).futureValue
+    pusher.push(2).futureValue
+    awaitTimeout(result)(impatience)
+
+    pusher.complete().futureValue
+    assert(result.futureValue == List(1,2))
   }
 }
