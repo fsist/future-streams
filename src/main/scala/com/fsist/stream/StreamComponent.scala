@@ -12,6 +12,9 @@ sealed trait StreamComponent {
   // This is implicit to become the default parameter value for methods in SourceOps
   implicit def builder: FutureStreamBuilder
 
+  require(builder eq builder, "`builder` method returns different values on successive calls. " +
+    "You probably wrote `override def builder = new FutureStreamBuilder` where you meant `override val builder...`")
+
   // Register on creation
   builder.register(this)
 
