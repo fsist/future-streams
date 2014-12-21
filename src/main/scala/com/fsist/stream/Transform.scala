@@ -328,18 +328,44 @@ object Transform {
   trait TapHead[Elem] {
     def tap: Future[Option[Elem]]
   }
-  
+
   /** A pass-through transform that exposes the first element passed via a Future. */
   def tapHead[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with TapHead[Elem] =
     new SyncSingleTransform[Elem, Elem] with TapHead[Elem] {
       override def builder: FutureStreamBuilder = b
-      
+
       private val promise = Promise[Option[Elem]]()
+
       override def tap: Future[Option[Elem]] = promise.future
 
       override def onNext(in: Elem): Elem = {
-        if (! promise.isCompleted) promise.success(Some(in))
+        if (!promise.isCompleted) promise.success(Some(in))
         in
       }
     }
+
+  /** Append the given elements to those in the stream. */
+  def append[Elem](elems: Iterable[Elem])
+                  (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+    flatMap[Elem, Elem](
+      (e: Elem) => Seq(e),
+      elems
+    )
+
+  /** Prepend the given elements to those in the stream. */
+  def prepend[Elem](elems: Iterable[Elem])
+                   (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] = new SyncManyTransform[Elem, Elem] {
+    private var emitted = false
+
+    override def onNext(in: Elem): Iterable[Elem] = {
+      if (emitted) Seq(in)
+      else {
+        emitted = true
+        elems ++ Seq(in)
+      }
+    }
+
+    override implicit def builder: FutureStreamBuilder = b
+  }
 }
+

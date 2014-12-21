@@ -157,6 +157,20 @@ trait SourceOps[+Out] {
     val tr = Transform.tapHead[Out]()
     transform(tr)
   }
+  
+  // Transform.append
+  
+  def append[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
+    val tr = Transform.append[Super](elems)
+    transform(tr)
+  }
+  
+  // Transform.prepend
+
+  def prepend[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
+    val tr = Transform.prepend[Super](elems)
+    transform(tr)
+  }
 
   // ===================================================================================================================
   // Sink

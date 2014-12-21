@@ -130,4 +130,19 @@ class TransformTest extends FunSuite with StreamTester {
     val data = 1 to 10
     val result = Source.from(data).collect[Vector]().singleResult().futureValue
     assert(result.isInstanceOf[Vector[Int]] && result == data.to[Vector], "Collected in a Vector")
-  }}
+  }
+  
+  test("append") {
+    val data = 1 to 10
+    val extra = 11 to 20
+    val result = Source.from(data).append(extra).collect[List].singleResult.futureValue
+    assert(result == data ++ extra)
+  }
+
+  test("prepend") {
+    val data = 1 to 10
+    val extra = 11 to 20
+    val result = Source.from(data).prepend(extra).collect[List].singleResult.futureValue
+    assert(result == extra ++ data)
+  }
+}
