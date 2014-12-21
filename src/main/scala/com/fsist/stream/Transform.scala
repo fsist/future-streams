@@ -326,7 +326,7 @@ object Transform {
   /** Returned by `tapOne`. `head` is fulfilled when the first element is passed through, or fulfilled with None if
     * the stream terminates and was empty. */
   trait TapHead[Elem] {
-    def head: Future[Option[Elem]]
+    def tap: Future[Option[Elem]]
   }
   
   /** A pass-through transform that exposes the first element passed via a Future. */
@@ -335,7 +335,7 @@ object Transform {
       override def builder: FutureStreamBuilder = b
       
       private val promise = Promise[Option[Elem]]()
-      override def head: Future[Option[Elem]] = promise.future
+      override def tap: Future[Option[Elem]] = promise.future
 
       override def onNext(in: Elem): Elem = {
         if (! promise.isCompleted) promise.success(Some(in))
