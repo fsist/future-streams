@@ -1,6 +1,7 @@
 package com.fsist.stream
 
 import akka.http.util.FastFuture
+import com.fsist.stream.Transform.TapHead
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, Func}
 
@@ -147,6 +148,13 @@ trait SourceOps[+Out] {
 
   def headOption(): Transform[_ <: Out, Option[Out]] = {
     val tr = Transform.headOption[Out]
+    transform(tr)
+  }
+  
+  // Transform.tapHead
+
+  def tapHead(): Transform[_ <: Out, Out] with TapHead[_ <: Out] = {
+    val tr = Transform.tapHead[Out]()
     transform(tr)
   }
 
