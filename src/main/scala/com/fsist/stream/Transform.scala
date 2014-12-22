@@ -347,25 +347,27 @@ object Transform {
       else Iterable(None)
   }
 
-  /** Returned by `tapOne`. `head` is fulfilled when the first element is passed through, or fulfilled with None if
-    * the stream terminates and was empty. */
-  trait TapHead[Elem] {
-    def tap: Future[Option[Elem]]
+  /** Mixed into some transforms, like `tapHead`, that complete a result of type T aside from the main stream
+    * and potentially before the stream completes. */
+  trait Aside[+T] {
+    def aside: Future[T]
   }
 
   /** A pass-through transform that exposes the first element passed via a Future. */
-  def tapHead[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with TapHead[Elem] =
-    new SyncSingleTransform[Elem, Elem] with TapHead[Elem] {
+  def tapHead[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with Aside[Option[Elem]] =
+    new SyncSingleTransform[Elem, Elem] with Aside[Option[Elem]] {
       override def builder: FutureStreamBuilder = b
 
       private val promise = Promise[Option[Elem]]()
 
-      override def tap: Future[Option[Elem]] = promise.future
+      override def aside: Future[Option[Elem]] = promise.future
 
       override def onNext(in: Elem): Elem = {
         if (!promise.isCompleted) promise.success(Some(in))
         in
       }
+
+      override def onComplete(): Unit = promise.trySuccess(None)
     }
 
   /** Append the given elements to those in the stream. */

@@ -11,4 +11,6 @@ trait StreamTester extends FunSuiteLike with FutureTester {
   override implicit def patienceConfig = PatienceConfig(1.minute)
 
   implicit def ec: ExecutionContext = ExecutionContext.global
+
+  val impatience = PatienceConfig(200.millis)
 }

@@ -36,8 +36,6 @@ class StreamInputTest extends FunSuite with StreamTester {
     stream(source).completion.futureValue(Timeout(1.second))
   }
 
-  private val impatience = PatienceConfig(200.millis)
-
   test("from AsyncQueue") {
     val queue = new AsyncQueue[Option[Int]]
     

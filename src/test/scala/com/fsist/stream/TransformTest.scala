@@ -1,9 +1,10 @@
 package com.fsist.stream
 
-import com.fsist.util.concurrent.Func
+import com.fsist.util.concurrent.{AsyncFunc, Func}
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import scala.collection.immutable
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration._
 
 class TransformTest extends FunSuite with StreamTester {
@@ -50,7 +51,7 @@ class TransformTest extends FunSuite with StreamTester {
   test("foldLeft") {
     val data = 1 to 10
 
-    val result = Source.from(data).foldLeft(0){
+    val result = Source.from(data).foldLeft(0) {
       case (item, sum) => item + sum
     }.singleResult().futureValue
 
@@ -141,7 +142,38 @@ class TransformTest extends FunSuite with StreamTester {
     val result = Source.from(data).collect[Vector]().singleResult().futureValue
     assert(result.isInstanceOf[Vector[Int]] && result == data.to[Vector], "Collected in a Vector")
   }
-  
+
+  test("tapHead") {
+    val data = 1 to 10
+    val tap = Source.from(data).tapHead()
+    tap.discard().buildResult().futureValue
+    assert(tap.aside.futureValue == Some(1))
+  }
+
+  test("tapHead of empty stream") {
+    val tap = Source.empty.tapHead()
+    tap.discard().buildResult().futureValue
+    assert(tap.aside.futureValue == None)
+  }
+
+  test("tapHead aside completes once an element has passed it") {
+    var emittedFirst = false
+    val source = Source.generateAsync((x: Unit) => {
+      if (emittedFirst) Promise[Int]().future
+      else {
+        emittedFirst = true
+        Future.successful(1)
+      }
+    })
+
+    val tap = source.tapHead()
+    val stream = tap.discard().buildResult()
+
+    awaitTimeout(stream)(impatience)
+
+    assert(tap.aside.futureValue == Some(1))
+  }
+
   test("append") {
     val data = 1 to 10
     val extra = 11 to 20
