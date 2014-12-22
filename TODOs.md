@@ -17,8 +17,6 @@ TODOs:
 - Convenience xxxAsync constructors take functions A => Future[B] instead of A => ExecutionContext => Future[B]
   because I can't figure out the syntax for an anonymous function taking implicit arguments
 - Add xxxAsync/xxx/xxxFunc triplets to all appropriate constructors on Sink, Source, Transform (matching SourceOps)
-- Add trait Pipe[In, Out] which can represent any sink-with-source. It might be a simple Transform, or it might
-  have more complex internal structure made of multiple components.
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 - Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
@@ -29,6 +27,12 @@ TODOs:
 - Add a note to the README about the push-through model
 - Document Pipe.flatten better in the README, including noting the point of asynchronicity on input
 - Add Source and Sink and StreamResult flatteners
+- Why are Source, Sink constructors not in StreamInput, StreamOutput? Just for simplicity / usability / less typing,
+  but it makes the API less regular...
+- Use of Pipe constructors is cumbersome: have to keep track manually of source segment, because the DSLs really build up
+  only the downstream side. The .pipe methods are not enough. See e.g. in the Foresight source, what
+  HtmlManipulator.manipulatorPipe has to do with `uncompressor` and `tapper`. It's too easy to get this wrong if even I
+  do so half the time!
 
 These v1 patterns need v2 equivalents + docs: 
 
