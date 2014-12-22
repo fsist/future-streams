@@ -3,6 +3,8 @@ package com.fsist.stream
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 
+import scala.concurrent.Promise
+
 class PipeTest extends FunSuite with StreamTester {
   test("Using a pipe manually with a single component") {
     val data = 1 to 10
@@ -42,5 +44,43 @@ class PipeTest extends FunSuite with StreamTester {
     val result = Source.from(data).through(pipe).collect[List]().singleResult().futureValue
 
     assert(result == data.map(_ + 3))
+  }
+
+  test("DelayedPipe") {
+    val data = 1 to 10
+    val promise = Promise[Pipe[Int, Int]]()
+    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+
+    awaitTimeout(stream, "Stream doesn't complete while waiting for delayed pipe")(impatience)
+
+    val pipe = Transform.map(Func[Int, Int](_ + 1)).pipe(Transform.map(Func[Int, Int](_ - 2)))
+
+    promise.success(pipe)
+
+    assert(stream.futureValue == data.map(_ - 1))
+  }
+
+  test("DelayedPipe (when the Future is already completed)") {
+    val data = 1 to 10
+    val promise = Promise[Pipe[Int, Int]]()
+
+    val pipe = Transform.map(Func[Int, Int](_ + 1)).pipe(Transform.map(Func[Int, Int](_ - 2)))
+
+    promise.success(pipe)
+
+    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+
+    assert(stream.futureValue == data.map(_ - 1))
+  }
+
+  test("DelayedPipe (when the Future fails)") {
+    val data = 1 to 10
+    val promise = Promise[Pipe[Int, Int]]()
+    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+
+    val error = new IllegalArgumentException("test")
+    promise.failure(error)
+
+    assert(stream.failed.futureValue == error)
   }
 }

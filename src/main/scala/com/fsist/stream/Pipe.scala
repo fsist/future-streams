@@ -1,7 +1,9 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.FutureStreamBuilder
+import com.fsist.util.concurrent.Func
 
+import scala.concurrent.Future
 import scala.language.implicitConversions
 
 /** A part of a stream with a single input Sink and a single output Source.
@@ -42,4 +44,10 @@ object Pipe {
 
   /** A pipe containing a transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
   def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[T, T] = Pipe(Transform.nop[T]()(builder))
+
+  /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe. */
+  def flatten[In, Out](future:  Future[Pipe[In, Out]],
+                       onError: Func[Throwable, Unit] = Func.nop)
+                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Pipe[In, Out] =
+    Pipe(DelayedTransform(builder, future, onError))
 }

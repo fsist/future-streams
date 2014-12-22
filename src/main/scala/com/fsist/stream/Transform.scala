@@ -92,7 +92,9 @@ trait AsyncManyTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFun
 
 /** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
 final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext: Func[In, Out],
-                                            onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out]
+                                            onComplete: Func[Unit, Unit], onError: Func[Throwable, Unit]) extends Transform[In, Out] {
+  override def toString(): String = s"SingleTransform@${System.identityHashCode(this)}"
+}
 
 object SingleTransform {
   def apply[In, Out](onNext: Func[In, Out],
@@ -112,6 +114,21 @@ object MultiTransform {
     apply(builder, onNext, onComplete, onError)
 }
 
+/** A Transform or more complex Pipe which will become available, and start operating, once `future` is fulfilled.
+  *
+  * If the future is fulfilled when the stream is built, it acts as an ordinary pipe.
+  * Otherwise, components upstream of this transform will pause when they try to push data into it,
+  * until the future is completed.
+  */
+final case class DelayedTransform[-In, +Out](builder: FutureStreamBuilder, future: Future[Pipe[In, Out]],
+                                             onError: Func[Throwable, Unit] = Func.nop) extends Transform[In, Out]
+
+object DelayedTransform {
+  def apply[In, Out](future: Future[Pipe[In, Out]])
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
+    apply(builder, future)
+}
+
 object Transform {
   /** A transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
   def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = NopTransform[T](builder)
@@ -123,6 +140,12 @@ object Transform {
   def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Iterable.empty[Out])
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)
+
+  /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe. */
+  def flatten[In, Out](future:  Future[Pipe[In, Out]],
+                       onError: Func[Throwable, Unit] = Func.nop)
+                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
+    DelayedTransform(builder, future, onError)
 
   def filter[In](filter: Func[In, Boolean])
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {

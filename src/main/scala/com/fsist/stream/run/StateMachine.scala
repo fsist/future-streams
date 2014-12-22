@@ -197,10 +197,53 @@ private[run] object StateMachine extends Logging {
 
   class TransformMachine[In, Out](val transform: Transform[In, Out], val graph: GraphOps)
                                  (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
+
+    /** Runs the concrete Pipe produced by a DelayedPipe's future as a separate materialized stream,
+      * interfacing with the main stream via a queue. */
+    private class SubsidiaryStream(pipe: Pipe[In, Out], consumerOnNext: Func[Out, Unit], consumerOnComplete: Func[Unit, Unit])
+                                  (implicit ec: ExecutionContext) {
+      val inputQueue = new BoundedAsyncQueue[Option[In]](1)
+
+      val substream = Source.from(inputQueue).through(pipe).foreachFunc(
+        consumerOnNext,
+        consumerOnComplete,
+        Func(e => graph.failGraph(e)) // Fail the parent stream
+      ).build()
+
+      substream.completion recover {
+        case NonFatal(e) =>
+          graph.failGraph(e)
+      }
+
+      val onNext = new AsyncFunc[In, Unit] {
+        override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = {
+          inputQueue.enqueue(Some(in))
+        }
+      }
+
+      val onComplete = new AsyncFunc[Unit, Unit] {
+        override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
+          inputQueue.enqueue(None) flatMap (_ => substream.completion)
+        }
+      }
+
+      val onError = Func((th: Throwable) => substream.fail(th))
+    }
+
     val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
 
-    // Acquire copy of user function
-    override val userOnError: Func[Throwable, Unit] = transform.onError
+    // Copy of user function
+    private val transformOnError = transform.onError
+
+    // Not a val because `substreamOnError` might be assigned later, when the substream has been materialized
+    override def userOnError: Func[Throwable, Unit] = {
+      substreamOnError match {
+        case null => transformOnError
+        case func => Func.tee(transformOnError, func)
+      }
+    }
+
+    @volatile private var substreamOnError: SyncFunc[Throwable, Unit] = Func.nop
 
     override lazy val consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
@@ -245,6 +288,37 @@ private[run] object StateMachine extends Logging {
           val onNext = trOnNext ~> Func.foreach(consumer.onNext)
           val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
+
+        case DelayedTransform(builder, future, onError) =>
+          future.value match {
+            case Some(Success(pipe)) =>
+              val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
+              substreamOnError = substream.onError
+              (substream.onNext, substream.onComplete)
+
+            case Some(Failure(e)) => throw e
+
+            case None =>
+              val futureSubstream = new FastFuture(future map (pipe => {
+                val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
+                substreamOnError = substream.onError
+                substream
+              }))
+
+              val onNext = new AsyncFunc[In, Unit] {
+                override def apply(a: In)(implicit ec: ExecutionContext): Future[Unit] = {
+                  futureSubstream flatMap (_.onNext(a))
+                }
+              }
+
+              val onComplete = new AsyncFunc[Unit, Unit] {
+                override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
+                  futureSubstream flatMap (_.onComplete(a))
+                }
+              }
+
+              (onNext, onComplete)
+          }
       }
 
       Consumer(onNext composeFailure(graph.failGraph), onComplete ~> afterCompleting composeFailure(graph.failGraph))

@@ -20,26 +20,21 @@ TODOs:
 - Add trait Pipe[In, Out] which can represent any sink-with-source. It might be a simple Transform, or it might
   have more complex internal structure made of multiple components.
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README
-
 - I really doubt if ALL my uses of @uncheckedVariance are legal
-
 - Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
-
 - Stop SyncFunc extending Function1; it inherits combinators such as .andThen which are confusing since they don't
   create Funcs (unless we override them)
-
 - Iterable.empty is a def not a val, and it's relatively expensive! Should make a val of my own and replace all usages in core lib.
-
 - Add SourceOps .onError
+- Add a note to the README about the push-through model
+- Document Pipe.flatten better in the README, including noting the point of asynchronicity on input
+- Add Source and Sink and StreamResult flatteners
 
 These v1 patterns need v2 equivalents + docs: 
 
 - Often library code has to provide a StreamOutput with a non-Unit result. E.g., HashingUtil provides a Sink[ByteString]
   that calculates a hash. But it may have internal components (i.e. be composed of a Pipe + an actual StreamOutput).
   This limits it to a Sink type, and not a StreamOutput, but then it doesn't have a result. What to do?
-- Several places in the code use a Pipe.tapOne + Pipe.flatten to decide what to do with the rest of the pipe based on
-  the first observed element. Is there any better solution than just writing a Future-based state machine that supports
-  all options? Maybe with some minimal help a la Actor.become?
-- SprayAckStream inner class AckActor needs to fail the outer sink (= the stream) asynchronously in some cases, 
+- SprayAckStream inner class AckActor needs to fail the outer sink (= the stream) asynchronously in some cases,
   but it only has access to the Sink model, not the running component. The problem is that AckActor is instantiated
   in a special and ugly way which must be called synchronously from its to-be-Parent actor...
