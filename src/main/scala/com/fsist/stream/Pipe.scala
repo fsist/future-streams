@@ -34,13 +34,11 @@ final case class Pipe[-In, +Out](builder: FutureStreamBuilder, sink: Sink[In], s
 }
 
 object Pipe {
-  def apply[In, Out](sink: Sink[In], source: Source[Out])
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[In, Out] =
-    apply(builder, sink, source)
+  def apply[In, Out](sink: Sink[In], source: Source[Out]): Pipe[In, Out] =
+    apply(sink.builder, sink, source)
 
-  implicit def apply[In, Out](transform: Transform[In, Out])
-                             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[In, Out] =
-    apply(builder, transform, transform)
+  implicit def apply[In, Out](transform: Transform[In, Out]): Pipe[In, Out] =
+    apply(transform.builder, transform, transform)
 
   /** A pipe containing a transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
   def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[T, T] = Pipe(Transform.nop[T]()(builder))
