@@ -3,23 +3,23 @@ package com.fsist.stream
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 
-import scala.collection.generic.CanBuildFrom
 import scala.concurrent.{Future, ExecutionContext}
 
 import scala.language.higherKinds
+import scala.language.implicitConversions
 
-/** A Sink is any stream component that receives input elements. */
-sealed trait Sink[-In] extends StreamComponentBase {
+/** Any stream component that receives input elements from a Source. */
+sealed trait SinkComponent[-In] extends StreamComponentBase {
 }
 
-/** This trait allows extending the sealed Sink trait inside this package. */
-private[stream] trait SinkBase[-In] extends Sink[In]
+/** This trait allows extending the sealed SinkComponent trait inside this package. */
+private[stream] trait SinkComponentBase[-In] extends SinkComponent[In]
 
 /** A Sink that sends data outside the stream, calculates a result, and/or has some other useful side effects.
   *
   * See the README for the semantics of the three onXxx functions.
   */
-sealed trait StreamOutput[-In, +Res] extends Sink[In] {
+sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
   /** Called on each input element, non-concurrently with itself and onComplete. */
   def onNext: Func[In, Unit]
 
@@ -114,8 +114,28 @@ object SimpleOutput {
     apply(builder, onNext, onComplete, onError)
 }
 
-object Sink {
+/** A part of a stream with a single unconnected SinkComponent.
+  *
+  * It can represent a single component (a StreamOutput), or multiple components (an output, transformers and connectors)
+  * which are already fully connected to one another. Its result is that of the original StreamOutput.
+  */
+final case class Sink[-In, +Res](sinkComponent: SinkComponent[In], output: StreamOutput[Nothing, Res]) {
+  implicit def builder: FutureStreamBuilder = output.builder
 
+  /** @see [[SinkComponent.build()]]
+    */
+  def build()(implicit ec: ExecutionContext): RunningStream = output.build()
+
+  /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
+  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[Nothing, Res] = output.buildAndGet()
+
+  /** A shortcut method that calls `build` and returns the future result produced by this component. */
+  def buildResult()(implicit ec: ExecutionContext): Future[Res] = output.buildResult()
+}
+
+object Sink {
+  implicit def apply[In, Res](output: StreamOutput[In, Res]): Sink[In, Res] = Sink(output, output)
+  
   def foreach[In, Res](onNext: In => Unit, onComplete: => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)

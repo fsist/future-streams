@@ -11,7 +11,7 @@ import scala.concurrent.{Promise, Future, ExecutionContext}
 import scala.language.higherKinds
 
 /** A transformation of an element stream. The input and output elements don't always have a 1-to-1 correspondence. */
-sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
+sealed trait Transform[-In, +Out] extends SourceComponentBase[Out] with SinkComponentBase[In] {
   def onError: Func[Throwable, Unit]
 
   /** Irreversibly connects to the `pipe`'s input Source.
@@ -20,16 +20,25 @@ sealed trait Transform[-In, +Out] extends SourceBase[Out] with SinkBase[In] {
     */
   def pipe[Next](pipe: Pipe[Out, Next]): Pipe[In, Next] = {
     connect(pipe.sink)
-    Pipe(builder, this, pipe.source)
+    Pipe(this, pipe.source)
   }
 
-  /** Irreversibly connects to this `next` transform
+  /** Irreversibly connects to the `next` transform
     *
     * Returns a new pipe containing `this` and the `next` transform.
     */
   def pipe[Next](next: Transform[Out, Next]): Pipe[In, Next] = {
     connect(next)
-    Pipe(builder, this, next)
+    Pipe(this, next)
+  }
+
+  /** Irreversibly connects to the `sink`.
+    *
+    * Returns a new Sink containing `this` and the original `sink` combined.
+    */
+  def combine[Res](next: Sink[Out, Res]): Sink[In, Res] = {
+    connect(next.sinkComponent)
+    Sink(this, next.output)
   }
 }
 

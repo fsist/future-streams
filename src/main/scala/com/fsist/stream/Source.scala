@@ -1,24 +1,31 @@
 package com.fsist.stream
 
-import java.util.concurrent.atomic.AtomicBoolean
-
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent._
 
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.control.ControlThrowable
 
-/** A Source is any stream component that produces elements to a downstream Sink. */
-sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
+import scala.language.implicitConversions
+
+/** Any stream component that produces elements to a downstream Sink. */
+sealed trait SourceComponent[+Out] extends StreamComponentBase with SourceOps[Out] {
+  override protected def sourceComponent: SourceComponent[Out] = this
 
   /** Irreversibly join this source with that sink. */
-  def connect(next: Sink[Out]): next.type = {
+  def connect(next: SinkComponent[Out]): next.type = {
     builder.connect(this, next)
     next
   }
 
   /** Irreversibly join this source with that sink. */
-  def to(sink: Sink[Out]): sink.type = connect(sink)
+  def to(sink: SinkComponent[Out]): sink.type = connect(sink)
+
+  /** Irreversibly join this source with that sink. */
+  def to[Res](sink: Sink[Out, Res]): sink.type = {
+    connect(sink.sinkComponent)
+    sink
+  }
 
   /** Irreversibly join this source with that pipe and return a new Pipe containing both. */
   def through[Next](pipe: Pipe[Out, Next]): pipe.type = {
@@ -30,8 +37,8 @@ sealed trait Source[+Out] extends StreamComponentBase with SourceOps[Out] {
   def transform[Next](tr: Transform[Out, Next]): tr.type = connect(tr)
 }
 
-/** This trait allows extending the sealed Source trait inside this package. */
-private[stream] trait SourceBase[+Out] extends Source[Out]
+/** This trait allows extending the sealed SourceComponent trait inside this package. */
+private[stream] trait SourceComponentBase[+Out] extends SourceComponent[Out]
 
 /** Marker trait of all exceptions used by the streams library for flow control.
   *
@@ -43,7 +50,7 @@ sealed trait StreamControlThrowable extends ControlThrowable
 case class EndOfStreamException() extends Exception("End of stream")
 
 /** A Source that introduces data into the stream from elsewhere, rather than from an upstream component. */
-sealed trait StreamInput[+Out] extends SourceBase[Out] {
+sealed trait StreamInput[+Out] extends SourceComponentBase[Out] {
 
   /** Called non-concurrently to produce the source elements. To indicate EOF, this function needs to throw a
     * EndOfStreamException.
@@ -107,7 +114,42 @@ final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterat
 /** A Source that generates elements by calling a user-supplied `producer` function. */
 final case class GeneratorSource[+Out](builder: FutureStreamBuilder, producer: Func[Unit, Out], onError: Func[Throwable, Unit]) extends StreamInput[Out]
 
+/** A part of a stream with a single unconnected SourceComponent.
+  *
+  * It can represent a single component (a StreamInput), or multiple components (inputs, transformers and connectors)
+  * which are already fully connected to one another.
+  */
+final case class Source[+Out](sourceComponent: SourceComponent[Out]) extends SourceOps[Out] {
+  def builder: FutureStreamBuilder = sourceComponent.builder
+
+  /** Irreversibly join this source with that sink. */
+  def connect(next: SinkComponent[Out]): next.type = {
+    builder.connect(sourceComponent, next)
+    next
+  }
+
+  /** Irreversibly join this source with that sink. */
+  def to(sink: SinkComponent[Out]): sink.type = connect(sink)
+
+  /** Irreversibly join this source with that sink. */
+  def to[Res](sink: Sink[Out, Res]): sink.type = {
+    connect(sink.sinkComponent)
+    sink
+  }
+
+  /** Irreversibly join this source with that pipe and returns a new Source containing both. */
+  def through[Next](pipe: Pipe[Out, Next]): Source[Next] = {
+    connect(pipe.sink)
+    Source(pipe.source)
+  }
+
+  /** Irreversibly join this source with that transform and returns a new Source containing both. */
+  def transform[Next](tr: Transform[Out, Next]): Source[Next] = Source(connect(tr))
+}
+
 object Source {
+  implicit def make[Out](component: SourceComponent[Out]): Source[Out] = Source(component)
+
   def apply[Out](ts: Out*)(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     from(ts)
 

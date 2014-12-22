@@ -2,7 +2,6 @@ package com.fsist.stream
 
 import akka.http.util.FastFuture
 import com.fsist.stream.Transform.Aside
-import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, Func}
 
 import scala.annotation.unchecked.uncheckedVariance
@@ -24,7 +23,10 @@ import scala.language.higherKinds
   * variant (the most common case) with function literals like `source.map(_ + 1)`.
   */
 trait SourceOps[+Out] {
-  self: Source[Out] =>
+
+  protected def sourceComponent: SourceComponent[Out]
+
+  private implicit def myBuilder = sourceComponent.builder
 
   // ===================================================================================================================
   // Transform
@@ -32,76 +34,76 @@ trait SourceOps[+Out] {
 
   // Transform.map
 
-  def map[Next](mapper: Out => Next): Source[Next] =
-    transform(Transform.map(mapper))
+  def map[Next](mapper: Out => Next): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(mapper))
 
-  def mapAsync[Next](mapper: Out => Future[Next]): Source[Next] =
-    transform(Transform.map(AsyncFunc(mapper)))
+  def mapAsync[Next](mapper: Out => Future[Next]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(AsyncFunc(mapper)))
 
-  def mapFunc[Next](mapper: Func[Out, Next]): Source[Next] =
-    transform(Transform.map(mapper))
+  def mapFunc[Next](mapper: Func[Out, Next]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(mapper))
 
   // Transform.flatMap
 
-  def flatMap[Next](mapper: Out => Iterable[Next], onComplete: => Iterable[Next] = Iterable.empty): Source[Next] =
-    transform(Transform.flatMap(mapper, onComplete))
+  def flatMap[Next](mapper: Out => Iterable[Next], onComplete: => Iterable[Next] = Iterable.empty): SourceComponent[Next] =
+    sourceComponent.transform(Transform.flatMap(mapper, onComplete))
 
   def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]],
-                         onComplete: => Future[Iterable[Next]] = FastFuture.successful(Iterable.empty)): Source[Next] =
-    transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
+                         onComplete: => Future[Iterable[Next]] = FastFuture.successful(Iterable.empty)): SourceComponent[Next] =
+    sourceComponent.transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
   def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]],
-                        onComplete: Func[Unit, Iterable[Next]] = Func(Iterable.empty)): Source[Next] =
-    transform(Transform.flatMap(mapper, onComplete))
+                        onComplete: Func[Unit, Iterable[Next]] = Func(Iterable.empty)): SourceComponent[Next] =
+    sourceComponent.transform(Transform.flatMap(mapper, onComplete))
 
   // Transform.filter
 
   def filter(filter: Out => Boolean)
-            (implicit ec: ExecutionContext): Source[Out] =
-    transform(Transform.filter(filter))
+            (implicit ec: ExecutionContext): SourceComponent[Out] =
+    sourceComponent.transform(Transform.filter(filter))
 
   def filterAsync(filter: Out => Future[Boolean])
-                 (implicit ec: ExecutionContext): Source[Out] =
-    transform(Transform.filter(AsyncFunc(filter)))
+                 (implicit ec: ExecutionContext): SourceComponent[Out] =
+    sourceComponent.transform(Transform.filter(AsyncFunc(filter)))
 
   def filterFunc(filter: Func[Out, Boolean])
-                (implicit ec: ExecutionContext): Source[Out] =
-    transform(Transform.filter(filter))
+                (implicit ec: ExecutionContext): SourceComponent[Out] =
+    sourceComponent.transform(Transform.filter(filter))
 
   // Transform.foldLeft
-
+  
   def foldLeft[Super >: Out, Res](init: Res)
-                                 (onNext: (Res, Super) => Res): Source[Res] = {
-    val tr = Transform.foldLeft[Super, Res](init)(onNext.tupled)(builder)
-    transform(tr)
+                                 (onNext: (Res, Super) => Res): SourceComponent[Res] = {
+    val tr = Transform.foldLeft[Super, Res](init)(onNext.tupled)
+    sourceComponent.transform(tr)
   }
 
   def foldLeftAsync[Super >: Out, Res](init: Res)
-                                      (onNext: ((Res, Super)) => Future[Res]): Source[Res] = {
-    val tr = Transform.foldLeft(init)(AsyncFunc(onNext))(builder)
-    transform(tr)
+                                      (onNext: ((Res, Super)) => Future[Res]): SourceComponent[Res] = {
+    val tr = Transform.foldLeft(init)(AsyncFunc(onNext))
+    sourceComponent.transform(tr)
   }
 
   def foldLeftFunc[Super >: Out, Res](init: Res)
-                                     (onNext: Func[(Res, Super), Res]): Source[Res] = {
-    val tr = Transform.foldLeft[Super, Res](init)(onNext)(builder)
-    transform(tr)
+                                     (onNext: Func[(Res, Super), Res]): SourceComponent[Res] = {
+    val tr = Transform.foldLeft[Super, Res](init)(onNext)
+    sourceComponent.transform(tr)
   }
 
   // Transform.take
 
-  def take(count: Long): Source[Out] =
-    transform(Transform.take(count))
+  def take(count: Long): SourceComponent[Out] =
+    sourceComponent.transform(Transform.take(count))
 
   // Transform.drop
 
-  def drop(count: Long): Source[Out] =
-    transform(Transform.drop(count))
+  def drop(count: Long): SourceComponent[Out] =
+    sourceComponent.transform(Transform.drop(count))
 
   // Transform.flatten
 
-  def flatten[Elem]()(implicit ev: Out <:< Iterable[Elem]): Source[Elem] = {
-    transform(Transform.flatten[Elem, Iterable]().asInstanceOf[Transform[Out, Elem]])
+  def flatten[Elem]()(implicit ev: Out <:< Iterable[Elem]): SourceComponent[Elem] = {
+    sourceComponent.transform(Transform.flatten[Elem, Iterable]().asInstanceOf[Transform[Out, Elem]])
   }
 
   // Transform.takeElements
@@ -109,8 +111,8 @@ trait SourceOps[+Out] {
   def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
                                                          (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
                                                           cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
-    val tr = Transform.takeElements(count)(cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
+    val tr = Transform.takeElements(count)(cbf, sourceComponent.builder)
+    sourceComponent.transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
   }
 
   // Transform.dropElements
@@ -118,23 +120,23 @@ trait SourceOps[+Out] {
   def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
                                                          (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
                                                           cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
-    val tr = Transform.dropElements(count)(cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
+    val tr = Transform.dropElements(count)(cbf, sourceComponent.builder)
+    sourceComponent.transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
   }
 
   // Transform.collect
 
   // For the legality of the use of @uncheckedVariance, compare TraversableOnce.To[M]
   def collect[M[_]]()(implicit cbf: CanBuildFrom[Nothing, Out, M[Out@uncheckedVariance]]): Transform[_ <: Out, M[Out@uncheckedVariance]] = {
-    val tr = Transform.collect()(cbf, builder)
-    transform(tr)
+    val tr = Transform.collect()(cbf, sourceComponent.builder)
+    sourceComponent.transform(tr)
   }
 
   /** This overload of `collect` lets you specify an explicit supertype bound of `Out` (so you cannot upcast past it)
     * and in exchange get a precise non-existential return type. */
   def collectSuper[Super >: Out, M[_]]()(implicit cbf: CanBuildFrom[Nothing, Super, M[Super]]): Transform[Super, M[Super]] = {
-    val tr = Transform.collect()(cbf, builder)
-    transform(tr)
+    val tr = Transform.collect()(cbf, sourceComponent.builder)
+    sourceComponent.transform(tr)
   }
 
   // Shortcuts for Transform.collect
@@ -153,43 +155,43 @@ trait SourceOps[+Out] {
 
   def concat[Elem, Super >: Out]()(implicit ev: Super <:< TraversableOnce[Elem],
                                    cbf: CanBuildFrom[Nothing, Elem, Super]): Transform[_ <: Out, Super] = {
-    val tr = Transform.concat[Elem, Super]() //(ev, cbf, builder)
-    transform(tr.asInstanceOf[Transform[Out, Super]])
+    val tr = Transform.concat[Elem, Super]() //(ev, cbf, sourceComponent.builder)
+    sourceComponent.transform(tr.asInstanceOf[Transform[Out, Super]])
   }
 
   // Transform.head
 
   def head(): Transform[_ <: Out, Out] = {
-    val tr = Transform.head[Out]
-    transform(tr)
+    val tr = Transform.head[Out]()
+    sourceComponent.transform(tr)
   }
 
   // Transform.headOption
 
   def headOption(): Transform[_ <: Out, Option[Out]] = {
-    val tr = Transform.headOption[Out]
-    transform(tr)
+    val tr = Transform.headOption[Out]()
+    sourceComponent.transform(tr)
   }
   
   // Transform.tapHead
 
   def tapHead(): Transform[_ <: Out, Out] with Aside[Option[Out]] = {
     val tr = Transform.tapHead[Out]()
-    transform(tr)
+    sourceComponent.transform(tr)
   }
   
   // Transform.append
   
   def append[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
     val tr = Transform.append[Super](elems)
-    transform(tr)
+    sourceComponent.transform(tr)
   }
   
   // Transform.prepend
 
   def prepend[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
     val tr = Transform.prepend[Super](elems)
-    transform(tr)
+    sourceComponent.transform(tr)
   }
 
   // ===================================================================================================================
@@ -202,34 +204,34 @@ trait SourceOps[+Out] {
                                  onComplete: => Res = Func.nopLiteral,
                                  onError: Throwable => Unit = Func.nopLiteral): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)
-    connect(output)
+    sourceComponent.connect(output)
   }
 
   def foreachAsync[Super >: Out, Res](func: Super => Future[Unit],
                                       onComplete: => Future[Res] = futureSuccess,
                                       onError: Throwable => Unit = Func.nopLiteral): StreamOutput[Super, Res] = {
     val output = Sink.foreachAsync(func, onComplete, onError)
-    to(output)
+    sourceComponent.to(output)
   }
 
   def foreachFunc[Super >: Out, Res](func: Func[Super, Unit],
                                      onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop): StreamOutput[Super, Res] = {
     val output = Sink.foreachFunc(func, onComplete, onError)
-    to(output)
+    sourceComponent.to(output)
   }
 
   // Sink.discard
 
   def discard(): StreamOutput[_ <: Out, Unit] = {
     val output = Sink.discard[Out]
-    to(output)
+    sourceComponent.to(output)
   }
 
   // Sink.single
 
   def single(): StreamOutput[_, Out] = {
     val sink = Sink.single[Out]()
-    to(sink)
+    sourceComponent.to(sink)
   }
 
   // ===================================================================================================================
@@ -240,7 +242,7 @@ trait SourceOps[+Out] {
 
   def singleResult()(implicit ec: ExecutionContext): Future[Out] = {
     val sink = Sink.single[Out]()
-    to(sink).buildResult()
+    sourceComponent.to(sink).buildResult()
   }
 
   // ===================================================================================================================
@@ -251,19 +253,19 @@ trait SourceOps[+Out] {
 
   def split(outputCount: Int, outputChooser: Out => BitSet): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, outputChooser)
-    to(splitter.inputs(0))
+    sourceComponent.to(splitter.inputs(0))
     splitter
   }
 
   def splitAsync(outputCount: Int, outputChooser: Out => Future[BitSet]): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, AsyncFunc(outputChooser))
-    to(splitter.inputs(0))
+    sourceComponent.to(splitter.inputs(0))
     splitter
   }
 
   def splitFunc(outputCount: Int, outputChooser: Func[Out, BitSet]): Splitter[_ <: Out] = {
     val splitter = Connector.split(outputCount, outputChooser)
-    to(splitter.inputs(0))
+    sourceComponent.to(splitter.inputs(0))
     splitter
   }
 
@@ -271,7 +273,7 @@ trait SourceOps[+Out] {
 
   def tee(outputCount: Int): Splitter[_ <: Out] = {
     val splitter = Connector.tee[Out](outputCount)
-    to(splitter.inputs(0))
+    sourceComponent.to(splitter.inputs(0))
     splitter
   }
 
@@ -279,7 +281,7 @@ trait SourceOps[+Out] {
 
   def roundRobin(outputCount: Int): Splitter[_ <: Out] = {
     val splitter = Connector.roundRobin[Out](outputCount)
-    to(splitter.inputs(0))
+    sourceComponent.to(splitter.inputs(0))
     splitter
   }
 
@@ -287,7 +289,7 @@ trait SourceOps[+Out] {
 
   def scatter(outputCount: Int): Scatterer[_ <: Out] = {
     val scatterer = Connector.scatter[Out](outputCount)
-    to(scatterer.inputs(0))
+    sourceComponent.to(scatterer.inputs(0))
     scatterer
   }
 }

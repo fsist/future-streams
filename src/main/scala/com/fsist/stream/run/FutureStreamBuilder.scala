@@ -60,7 +60,7 @@ class FutureStreamBuilder extends Logging {
     * when `build` is called.
     */
   def register(component: StreamComponent): Unit = component match {
-    case Pipe(_, sink, source) =>
+    case Pipe(sink, source) =>
       register(sink)
       register(source)
     case other => alterState(_.mapGraph(_ + other))
@@ -74,13 +74,13 @@ class FutureStreamBuilder extends Logging {
   }
 
   /** Irreversibly connects two components together, and possibly links their builders. */
-  def connect[In >: Out, Out](source: Source[Out], sink: Sink[In]): Unit = {
+  def connect[In >: Out, Out](source: SourceComponent[Out], sink: SinkComponent[In]): Unit = {
     val trueSource = source match {
-      case Pipe(_, _, source) => source
+      case Pipe(_, source) => source
       case other => other
     }
     val trueSink = sink match {
-      case Pipe(_, sink, _) => sink
+      case Pipe(sink, _) => sink
       case other => other
     }
 
@@ -188,7 +188,7 @@ class FutureStreamBuilder extends Logging {
 
     // Connect the state machines to one another
 
-    for (DiEdge(from: Source[_], to: Sink[_]) <- model.edges.toOuter) {
+    for (DiEdge(from: SourceComponent[_], to: SinkComponent[_]) <- model.edges.toOuter) {
       from match {
         // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
         case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
@@ -208,8 +208,9 @@ class FutureStreamBuilder extends Logging {
       }
     }
 
-    // Start the initial machines
-    for (machine <- allMachines.values if machine.isInstanceOf[RunnableMachine]) {
+    // Start the initial machines. Note that `allMachines` can contain the same value many times (for Connectors mapped
+    // from multiple StreamComponents which are their edges) so we use .toSet to only `run` each machine once.
+    for (machine <- allMachines.values.toSet if machine.isInstanceOf[RunnableMachine]) {
       Future {
         machine.asInstanceOf[RunnableMachine].run()
       } recover {

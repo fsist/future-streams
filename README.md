@@ -26,25 +26,54 @@ A stream contains one or more `StreamInput`s and one or more `StreamOutput`s, an
 `Connector`s. These are connected to one another in a directed manner, forming a digraph in which we can speak of 
 components 'upstream' and 'downstream' relative to each node.
 
-Stream components, which are also called (graph) nodes, come in several types. There are some common traits these
-types can implement:
+Stream components, which are also called (graph) nodes, come in four main types:
 
-1.  A `Source[Out]` produces elements of type `Out`.
-2.  A `Sink[In]` consumes elements.
-
-There are four main node types:
-
-1.  A `StreamInput[Out] extends Source[Out]` introduces new elements into the stream from elsewhere. It has no upstream 
-    connection.
-2.  A `StreamOutput[In] extends Sink[In]` consumes stream elements. It has no downstream connection.
-3.  A `Transform[In, Out] extends Sink[In] with Source[Out]` transforms the stream in some way. Output elements
-    don't always correspond one-to-one to input elements.
+1.  A `StreamInput[Out]` introduces new elements into the stream from elsewhere. It has no upstream connection.
+2.  A `StreamOutput[In]` consumes stream elements. It has no downstream connection.
+3.  A `Transform[In, Out]` transforms the stream in some way. Output elements don't always correspond one-to-one to
+    input elements.
 4.  A `Connector[In, Out]` is a special node type which can connect to more than one upstream or downstream node.
-    This serves to fan-out or fan-in stream connections. The Connector doesn't extend `Source[In] with Sink[Out]`
-    because it isn't a single Source or Sink; instead it makes multiple Sources and Sinks available as methods.
+    This serves to fan-out or fan-in stream connections. The Connector exposes multiple connection ponints via its
+    `sources` and `sinks` methods.
 
-There is also an auxiliary type called `Pipe[In, Out]`, which represents a Sink linked to a Source with a black box
-in the middle. It can abstract away sub-graphs of the stream model which are already internally connected.
+For each of these four types, there are several concrete case classes which implement them. Each class corresponds to a
+different state machine implementation in the library; in other words, these classes are as general as possible.
+They are:
+
+1.  For `StreamInput`, there is `IteratorSource`, which reads from an Iterator or Iterable, and `GeneratorSource`,
+    which has a user-provided function with the signature `producer: Func[Unit, Out]`.
+2.  For `StreamOutput`, there is only one model, `SimpleOutput`, which has a user-provided function `onNext: Func[In, Unit]`.
+3.  For `Transform` there are three models. `SingleTransform` and `MultiTransform` correspond to `map` and `flatMap`
+    respectively. The special type `DelayedTransform` models a transform, or possibly a whole Pipe (a complex stream
+    with multiple internal components), which will only become available when some `Future[Pipe[In, Out]]` completes.
+4.  For `Connector` there are `Splitter` and `Scatterer`, which model different kinds of one-to-many connections,
+    and `Merger` which models a many-to-one join.
+
+All of these case classes have `Func` arguments describing their behavior.
+
+As an alternative to using these case classes, when implementing your own inputs, outputs and transformations you can
+also implement the corresponding trait; see below for more on this.
+
+Finally, we can briefly mention that there are also some lower-level traits these components implement, namely
+`SourceComponent` and `SinkComponent`. These usually aren't used explicitly by user code; however, make sure not to
+confuse them with `Source` and `Sink`, which are described below.
+
+### Sources, Sinks and Pipes
+
+These are three 'combinator' types which should be used in APIs to hide implementation details.
+
+A `Source` is any collection of connected components which exposes a single unconnected `SourceComponent`.
+It may be, trivially, just a single SourceInput, or a SourceInput with several Transforms, or a more complex graph
+with multiple inputs and Connectors.
+
+A `Sink` is any collection of connected components with a single unconnected `SinkComponent`, and which contains
+a single `StreamOutput`, whose result is exposed as part of the `Sink`.
+
+A `Pipe` is any collection of connected components with a single unconnected `SourceComponent` and a single unconnected
+`SinkComponent`.
+
+When designing your own APIs, they should take and return Sources, Sinks and Pipes in preference to StreamInputs,
+StreamOutputs and Transforms.
     
 ### Modeling and running the stream
 
@@ -83,10 +112,13 @@ would take too much effort to implement, even though the design itself might be 
 
 A `StreamOutput[In, Res]` has two type parameters: in addition to the stream element type `In`, there is the result type
 `Res`. This optional result is returned by the output's `onComplete` handler (which is supplied by the user when 
-constructing the component). 
+constructing the component).
 
 Unlike in future-streams v1, this result cannot be completed before whole component completes. Components that wish
 to provide data earlier should take or provide callbacks or Promises when their model is constructed.
+
+A `Sink[In, Res]` generalizes this to include a `StreamOutput[_, Res]` and zero or more components connected upstream of it,
+with a single unconnected `SinkComponent[In]` remaining.
  
 ### Stream failures
 

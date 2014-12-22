@@ -24,7 +24,7 @@ sealed trait ConnectorEdge[T] extends StreamComponentBase {
   */
 final case class ConnectorInput[T](connector: Connector[T], index: Int)
                                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
-  extends SinkBase[T] with ConnectorEdge[T] {
+  extends SinkComponentBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = true
 }
@@ -35,7 +35,7 @@ final case class ConnectorInput[T](connector: Connector[T], index: Int)
   */
 final case class ConnectorOutput[T](connector: Connector[T], index: Int)
                                            (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
-  extends SourceBase[T] with ConnectorEdge[T] {
+  extends SourceComponentBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = false
 }
@@ -55,7 +55,7 @@ sealed trait Connector[T] {
     *
     * @throws IllegalArgumentException if the size of `sources` isn't the same as the size of `this.inputs`.
     */
-  def connectInputs(sources: immutable.Seq[Source[T]]): this.type = {
+  def connectInputs(sources: immutable.Seq[SourceComponent[T]]): this.type = {
     require(sources.size == inputs.size, s"Must pass the same number of sources as we have inputs, was ${sources.size} vs ${inputs.size}")
 
     for ((source, input) <- sources zip inputs) source.connect(input)
@@ -72,7 +72,7 @@ sealed trait Connector[T] {
     *
     * @throws IllegalArgumentException if the size of `sinks` isn't the same as the size of `this.outputs`.
     */
-  def connectOutputs(sinks: immutable.Seq[Sink[T]]): this.type = {
+  def connectOutputs(sinks: immutable.Seq[SinkComponent[T]]): this.type = {
     require(sinks.size == outputs.size, s"Must pass the same number of sinks as we have outputs, was ${sinks.size} vs ${outputs.size}")
 
     for ((sink, output) <- sinks zip outputs) output.connect(sink)

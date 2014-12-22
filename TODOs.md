@@ -33,6 +33,8 @@ TODOs:
   only the downstream side. The .pipe methods are not enough. See e.g. in the Foresight source, what
   HtmlManipulator.manipulatorPipe has to do with `uncompressor` and `tapper`. It's too easy to get this wrong if even I
   do so half the time!
+- Make SourceOps methods return a Source[Next] when used on a Source
+
 
 These v1 patterns need v2 equivalents + docs: 
 

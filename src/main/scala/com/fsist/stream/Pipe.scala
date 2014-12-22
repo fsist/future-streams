@@ -6,13 +6,15 @@ import com.fsist.util.concurrent.Func
 import scala.concurrent.Future
 import scala.language.implicitConversions
 
-/** A part of a stream with a single input Sink and a single output Source.
+/** A part of a stream with a single unconnected input SinkComponent and a single unconnected output SourceComponent.
   *
   * It can represent a single component (a Transform), or a series of components which are already fully connected
   * to one another.
   */
-final case class Pipe[-In, +Out](builder: FutureStreamBuilder, sink: Sink[In], source: Source[Out])
-  extends SinkBase[In] with SourceBase[Out] {
+final case class Pipe[-In, +Out](sink: SinkComponent[In], source: SourceComponent[Out])
+  extends SinkComponentBase[In] with SourceComponentBase[Out] {
+
+  override implicit def builder: FutureStreamBuilder = sink.builder
 
   /** Irreversibly connects the `next` pipe after this one.
     *
@@ -20,7 +22,7 @@ final case class Pipe[-In, +Out](builder: FutureStreamBuilder, sink: Sink[In], s
     */
   def pipe[Next](next: Pipe[Out, Next]): Pipe[In, Next] = {
     source.connect(next.sink)
-    Pipe(builder, sink, next.source)
+    Pipe(sink, next.source)
   }
 
   /** Irreversibly connects the `next` transform after this pipe.
@@ -29,16 +31,22 @@ final case class Pipe[-In, +Out](builder: FutureStreamBuilder, sink: Sink[In], s
     */
   def pipe[Next](next: Transform[Out, Next]): Pipe[In, Next] = {
     source.connect(next)
-    Pipe(builder, sink, next)
+    Pipe(sink, next)
+  }
+
+  /** Irreversibly connects to this `sink`.
+    *
+    * Returns a new Sink composing this pipe with the original sink.
+    */
+  def combine[Res](next: Sink[Out, Res]): Sink[In, Res] = {
+    source.connect(next.sinkComponent)
+    Sink(sink, next.output)
   }
 }
 
 object Pipe {
-  def apply[In, Out](sink: Sink[In], source: Source[Out]): Pipe[In, Out] =
-    apply(sink.builder, sink, source)
-
   implicit def apply[In, Out](transform: Transform[In, Out]): Pipe[In, Out] =
-    apply(transform.builder, transform, transform)
+    apply(transform, transform)
 
   /** A pipe containing a transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
   def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[T, T] = Pipe(Transform.nop[T]()(builder))

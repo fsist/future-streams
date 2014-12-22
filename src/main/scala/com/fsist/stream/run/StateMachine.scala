@@ -1,5 +1,6 @@
 package com.fsist.stream.run
 
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.http.util.FastFuture
@@ -60,11 +61,12 @@ private[run] sealed trait StateMachine extends Logging {
   def isFailed: Boolean = completionPromise.isCompleted && completionPromise.future.value.get.isFailure
 
   /** Returns true if NOT completed, false if completed successfully, and throws the failure exception if failed. */
-  def throwIfFailed(): Boolean = if (!completionPromise.isCompleted) true
-  else completionPromise.future.value.get match {
-    case Failure(e) => throw e
-    case Success(_) => false
-  }
+  def throwIfFailed(): Boolean =
+    if (!completionPromise.isCompleted) true
+    else completionPromise.future.value.get match {
+      case Failure(e) => throw e
+      case Success(_) => false
+    }
 
   def failure: Option[Throwable] =
     completionPromise.future.value.flatMap(_ match {
@@ -259,12 +261,12 @@ private[run] object StateMachine extends Logging {
         case NopTransform(builder) =>
           throw new IllegalArgumentException("NopTransform nodes should be eliminated by the stream builder")
 
-        case sync : SyncSingleTransform[In, Out] =>
+        case sync: SyncSingleTransform[In, Out] =>
           val onNext = sync ~> consumerOnNext
           val onComplete = Func(sync.onComplete()) ~> consumerOnComplete
           (onNext, onComplete)
 
-        case async : AsyncSingleTransform[In, Out] =>
+        case async: AsyncSingleTransform[In, Out] =>
           val onNext = async ~> consumerOnNext
           val onComplete = Func(async.onComplete()) ~> consumerOnComplete
           (onNext, onComplete)
@@ -274,12 +276,12 @@ private[run] object StateMachine extends Logging {
           val onComplete = trOnComplete ~> consumerOnComplete
           (onNext, onComplete)
 
-        case sync : SyncManyTransform[In, Out] =>
+        case sync: SyncManyTransform[In, Out] =>
           val onNext = sync ~> Func.foreach(consumerOnNext)
           val onComplete = Func(sync.onComplete()) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
 
-        case async : AsyncManyTransform[In, Out] =>
+        case async: AsyncManyTransform[In, Out] =>
           val onNext = async ~> Func.foreach(consumerOnNext)
           val onComplete = AsyncFunc.withEc((x: Unit) => (ec: ExecutionContext) => async.onComplete()(ec)) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
@@ -321,7 +323,7 @@ private[run] object StateMachine extends Logging {
           }
       }
 
-      Consumer(onNext composeFailure(graph.failGraph), onComplete ~> afterCompleting composeFailure(graph.failGraph))
+      Consumer(onNext composeFailure (graph.failGraph), onComplete ~> afterCompleting composeFailure (graph.failGraph))
     }
   }
 
@@ -354,9 +356,9 @@ private[run] object StateMachine extends Logging {
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
-      val fullOnComplete = consumerOnComplete ~> Func(completionPromise.success(())) ~> Func(()) composeFailure(graph.failGraph)
+      val fullOnComplete = consumerOnComplete ~> Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
 
-      def loopStep(): Future[Unit] = queue.dequeue() flatMap { item =>
+      def loopStep(): Future[Unit] = new FastFuture(queue.dequeue()).flatMap(item => {
         throwIfFailed
 
         item match {
@@ -375,15 +377,19 @@ private[run] object StateMachine extends Logging {
                 case syncf: SyncFunc[Unit, Unit] =>
                   syncf(())
                   futureSuccess
+
                 case asyncf: AsyncFunc[Unit, Unit] =>
                   asyncf(())
               }
             }
-            else futureSuccess
+            else {
+              loopStep()
+            }
         }
-      } recover {
-        case NonFatal(e) => graph.failGraph(e)
-      }
+      }).recover({
+        case NonFatal(e) =>
+          graph.failGraph(e)
+      })
 
       // Fire and forget
       loopStep()
