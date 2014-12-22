@@ -142,9 +142,9 @@ object Transform {
     MultiTransform(builder, mapper, onComplete, Func.nop)
 
   /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe. */
-  def flatten[In, Out](future:  Future[Pipe[In, Out]],
-                       onError: Func[Throwable, Unit] = Func.nop)
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
+  def flattenPipe[In, Out](future: Future[Pipe[In, Out]],
+                           onError: Func[Throwable, Unit] = Func.nop)
+                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
     DelayedTransform(builder, future, onError)
 
   def filter[In](filter: Func[In, Boolean])
