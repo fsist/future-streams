@@ -34,7 +34,8 @@ TODOs:
   HtmlManipulator.manipulatorPipe has to do with `uncompressor` and `tapper`. It's too easy to get this wrong if even I
   do so half the time!
 - Make SourceOps methods return a Source[Next] when used on a Source
-
+- Because methods like SourceOps.foreach take generic arguments, you can't write source.foreach(println(_)), you have to
+  write explicitly source.foreach((x: String) => println(x)). Can this be fixed?
 
 These v1 patterns need v2 equivalents + docs: 
 

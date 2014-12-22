@@ -31,7 +31,7 @@ class StreamInputTest extends FunSuite with StreamTester {
   }
 
   test("StreamInput completion promise is fulfilled") {
-    val source = Source(1, 2, 3)
+    val source = Source.of(1, 2, 3)
     val stream = source.foreach(Func.nop).build()
     stream(source).completion.futureValue(Timeout(1.second))
   }

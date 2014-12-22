@@ -289,7 +289,7 @@ In this example, we might have various stream transformations available:
 And then user code could compose them generically:
 
     val transforms: Seq[Pipe[Int, Int]] = ???
-    val source = Source(1,2,3)
+    val source = Source.of(1,2,3)
     val stream = transforms.foldLeft(source){
       case (src, tr) => src.transform(tr)
     }

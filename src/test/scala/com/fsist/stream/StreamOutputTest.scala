@@ -33,18 +33,18 @@ class StreamOutputTest extends FunSuite with StreamTester {
 
   test("StreamOutput completion promise is fulfilled") {
     val sink = Sink.foreach[Int, Unit](Func.nop)
-    val stream = Source(1, 2, 3).to(sink).build()
+    val stream = Source.of(1, 2, 3).to(sink).build()
     stream(sink).completion.futureValue(Timeout(1.second))
   }
 
   test("single") {
-    val result = Source(1).singleResult().futureValue
+    val result = Source.of(1).singleResult().futureValue
     assert(result == 1)
 
     val stream = Source.empty.singleResult()
     awaitFailure[NoSuchElementException](stream, ".single operator on empty stream")
 
-    val stream2 = Source(1, 2, 3).singleResult()
+    val stream2 = Source.of(1, 2, 3).singleResult()
     awaitFailure[IllegalArgumentException](stream2, ".single operator on stream with more than one elements")
   }
 }

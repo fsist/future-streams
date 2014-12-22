@@ -195,7 +195,7 @@ class ConnectorTest extends FunSuite with StreamTester {
   }
 
   test("Splitter completion promise is fulfilled") {
-    val source = Source(1, 2, 3)
+    val source = Source.of(1, 2, 3)
     val connector = source.roundRobin(2)
     for (output <- connector.outputs)
       output.foreach(Func.nop)
@@ -206,7 +206,7 @@ class ConnectorTest extends FunSuite with StreamTester {
   }
 
   test("Scatterer completion promise is fulfilled") {
-    val source = Source(1, 2, 3)
+    val source = Source.of(1, 2, 3)
     val connector = source.scatter(2)
     for (output <- connector.outputs)
       output.foreach(Func.nop)
@@ -219,7 +219,7 @@ class ConnectorTest extends FunSuite with StreamTester {
   test("Merger completion promise is fulfilled") {
     val merger = Merger[Int](2)
     for (input <- merger.inputs)
-      Source(1, 2, 3).to(input)
+      Source.of(1, 2, 3).to(input)
 
     val stream = merger.output.foreach(Func.nop).build()
 

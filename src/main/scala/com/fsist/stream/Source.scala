@@ -150,7 +150,7 @@ final case class Source[+Out](sourceComponent: SourceComponent[Out]) extends Sou
 object Source {
   implicit def make[Out](component: SourceComponent[Out]): Source[Out] = Source(component)
 
-  def apply[Out](ts: Out*)(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+  def of[Out](ts: Out*)(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     from(ts)
 
   def from[Out](iter: Iterable[Out])(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
@@ -171,8 +171,8 @@ object Source {
                         (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     generateFunc(AsyncFunc(producer), SyncFunc(onError))
 
-  /** Creates a Source that produces no elements. This is just an alias for `apply`. */
-  def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = apply()
+  /** Creates a Source that produces no elements. This is just an alias for `Source.of`. */
+  def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = of()
 
   /** Creates an input that produces the elements pushed into this queue. Pushing `None` signifies end of stream, after 
     * which no more elements will be dequeued.
