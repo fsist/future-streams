@@ -1,5 +1,7 @@
 package com.fsist.stream
 
+import java.util.concurrent.atomic.AtomicReference
+
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 
 import scala.concurrent.{Future, ExecutionContext}
@@ -29,3 +31,22 @@ sealed trait StreamComponent {
 
 /** This trait allows extending the sealed StreamComponent trait inside this package. */
 private[stream] trait StreamComponentBase extends StreamComponent
+
+/** A mixin for trait-based stream component implementations that provides a new builder in a succint way.
+  * You can still override it to plug in your own builder.
+  */
+trait NewBuilder { self: StreamComponent =>
+  private[this] val myBuilder = new AtomicReference[FutureStreamBuilder](null)
+
+  // Don't use a val, because then overriding this with a def becomes impossible, and overriding with another val
+  // leads to circular initialization issues
+  override implicit def builder: FutureStreamBuilder = {
+    myBuilder.get() match {
+      case null =>
+        val newBuilder = new FutureStreamBuilder
+        if (myBuilder.compareAndSet(null, newBuilder)) newBuilder
+        else builder
+      case b => b
+    }
+  }
+}

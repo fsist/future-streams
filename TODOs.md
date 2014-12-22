@@ -23,10 +23,6 @@ TODOs:
 
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 
-- It's annoying to write, most of the time you implement a component by trait,     override implicit val builder: FutureStreamBuilder = new FutureStreamBuilder
-  Also there's a common mistake where you write "override implicit def builder" and create a new one on every call,
-  which breaks everything.
-
 - Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
 
 - Stop SyncFunc extending Function1; it inherits combinators such as .andThen which are confusing since they don't

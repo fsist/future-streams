@@ -39,7 +39,7 @@ final case class NopTransform[T](builder: FutureStreamBuilder) extends Transform
 }
 
 /** Common supertrait of the non-sealed traits the user can extend to implement a Transform. */
-sealed trait UserTransform[-In, +Out] extends Transform[In, Out] {
+sealed trait UserTransform[-In, +Out] extends Transform[In, Out] with NewBuilder {
   final override def onError: Func[Throwable, Unit] = Func(th => onError(th))
 
   /** Called on stream failure. See the README for the semantics. */

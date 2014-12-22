@@ -46,7 +46,7 @@ sealed trait StreamOutput[-In, +Res] extends Sink[In] {
   *
   * This often allows writing more elegant code for complex stateful consumers.
   */
-trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In, Unit] {
+trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In, Unit] with NewBuilder {
   final override def onNext: Func[In, Unit] = this
 
   final override def onComplete: Func[Unit, Res] = complete()
@@ -76,7 +76,7 @@ trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In
   *
   * This often allows writing more elegant code for complex stateful consumers.
   */
-trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[In, Unit] {
+trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[In, Unit] with NewBuilder {
   final override def onNext: Func[In, Unit] = this
 
   final override def onComplete: Func[Unit, Res] = AsyncFunc.withEc((a: Unit) => (ec: ExecutionContext) => complete()(ec))

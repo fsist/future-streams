@@ -57,7 +57,7 @@ sealed trait StreamInput[+Out] extends SourceBase[Out] {
   *
   * This often allows writing more elegant code for complex stateful producers.
   */
-trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] {
+trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] with NewBuilder {
   final override def producer: Func[Unit, Out] = this
 
   final override def apply(a: Unit): Out = produce()
@@ -78,7 +78,7 @@ trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] {
   *
   * This often allows writing more elegant code for complex stateful producers.
   */
-trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out] {
+trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out] with NewBuilder {
   final override def producer: Func[Unit, Out] = this
 
   final override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Out] = produce()(ec)
