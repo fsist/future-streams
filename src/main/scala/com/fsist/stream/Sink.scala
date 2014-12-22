@@ -133,26 +133,6 @@ object Sink {
   def discard[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Unit] =
     SimpleOutput(builder, Func.nop, Func.pass, Func.nop)
 
-  def foldLeft[In, Res](init: Res)(onNext: Func[(Res, In), Res],
-                                   onError: Func[Throwable, Unit] = Func.nop)
-                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Res] = {
-    val (userOnNext, userOnError) = (onNext, onError)
-    def b = builder
-
-    new StreamOutput[In, Res] {
-      override def builder: FutureStreamBuilder = b
-
-      private var state: Res = init
-
-      override def onNext: Func[In, Unit] = SyncFunc((in: In) => (state, in)) ~> userOnNext ~> SyncFunc((st: Res) => state = st)
-
-      override def onError: Func[Throwable, Unit] = userOnError
-
-      override def onComplete: Func[Unit, Res] = SyncFunc(state)
-
-    }
-  }
-
   /** Extracts the single element of the input stream as the result.
     *
     * If the stream is empty, fails with NoSuchElementException.

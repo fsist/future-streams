@@ -21,10 +21,6 @@ TODOs:
   have more complex internal structure made of multiple components.
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README
 
-- Since I've moved all single-result-producing functions like head / collect / concat to Transform, I should probably
-  move Sink.foldLeft too. So StreamOutput is only left to 1) produce a result, usually using `single` and 2) have side
-  effects using foreach.
-
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 
 - It's annoying to write, most of the time you implement a component by trait,     override implicit val builder: FutureStreamBuilder = new FutureStreamBuilder
@@ -32,6 +28,13 @@ TODOs:
   which breaks everything.
 
 - Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
+
+- Stop SyncFunc extending Function1; it inherits combinators such as .andThen which are confusing since they don't
+  create Funcs (unless we override them)
+
+- Iterable.empty is a def not a val, and it's relatively expensive! Should make a val of my own and replace all usages in core lib.
+
+- Add SourceOps .onError
 
 These v1 patterns need v2 equivalents + docs: 
 

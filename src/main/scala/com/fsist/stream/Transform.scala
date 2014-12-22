@@ -143,6 +143,30 @@ object Transform {
     MultiTransform(func, Func(List.empty))(builder)
   }
 
+  def foldLeft[In, Res](init: Res)(onNext: Func[(Res, In), Res])
+                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
+
+    var state = init
+    val empty = Iterable.empty[Res]
+    val func: Func[In, Iterable[Res]] = onNext match {
+      case syncf: SyncFunc[(Res, In), Res] =>
+        (in: In) => {
+          state = syncf((state, in))
+          empty
+        }
+      case asyncf: AsyncFunc[(Res, In), Res] =>
+        new AsyncFunc[In, Iterable[Res]] {
+          override def apply(in: In)(implicit ec: ExecutionContext): Future[Iterable[Res]] = asyncf((state, in)) map {
+            case newState =>
+              state = newState
+              empty
+          }
+        }
+    }
+
+    flatMap[In, Res](func, Seq(state))
+  }
+
   /** WARNING: this implementation discards all input after `count` elements have been taken, but it doesn't prevent
     * the upstream component from producing them, which may be expensive. */
   def take[T](count: Long)

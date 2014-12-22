@@ -31,16 +31,6 @@ class StreamOutputTest extends FunSuite with StreamTester {
     assert(sum == data.sum, "Data processed correctly")
   }
 
-  test("foldLeft") {
-    val data = 1 to 10
-
-    val result = Source.from(data).foldLeft(0){
-      case (item, sum) => item + sum
-    }.buildResult().futureValue
-
-    assert(result == data.sum, "Data processed correctly")
-  }
-
   test("StreamOutput completion promise is fulfilled") {
     val sink = Sink.foreach[Int, Unit](Func.nop)
     val stream = Source(1, 2, 3).to(sink).build()

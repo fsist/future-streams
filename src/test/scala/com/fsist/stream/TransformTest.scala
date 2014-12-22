@@ -47,6 +47,16 @@ class TransformTest extends FunSuite with StreamTester {
     assert(result == expected, "Filtered correctly")
   }
 
+  test("foldLeft") {
+    val data = 1 to 10
+
+    val result = Source.from(data).foldLeft(0){
+      case (item, sum) => item + sum
+    }.singleResult().futureValue
+
+    assert(result == data.sum, "Data processed correctly")
+  }
+
   test("take") {
     val range = 1 to 10
 
