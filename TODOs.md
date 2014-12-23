@@ -35,6 +35,9 @@ TODOs:
 - Make SourceOps methods return a Source[Next] when used on a Source
 - Because methods like SourceOps.foreach take generic arguments, you can't write source.foreach(println(_)), you have to
   write explicitly source.foreach((x: String) => println(x)). Can this be fixed?
+- Why not make the builder an implicit param in the model case classes? It seems to work fine for e.g. Merger
+- Using default arguments for onComplete, onError functions can break type inference or implicit Func conversion.
+  Using several overloads, each with more arguments, seems to do better. If confirmed, we could migrate wholesale.
 
 These v1 patterns need v2 equivalents + docs: 
 
