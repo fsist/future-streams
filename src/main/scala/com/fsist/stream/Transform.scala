@@ -151,7 +151,7 @@ object Transform {
                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, onComplete, Func.nop)
 
-  def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Iterable.empty[Out])
+  def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Func(Iterable.empty[Out]))
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)
 
