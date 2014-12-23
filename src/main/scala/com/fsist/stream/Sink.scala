@@ -142,7 +142,7 @@ final case class Sink[-In, +Res](sinkComponent: SinkComponent[In], output: Strea
 
 object Sink {
   implicit def apply[In, Res](output: StreamOutput[In, Res]): Sink[In, Res] = Sink(output, output)
-  
+
   def foreach[In, Res](onNext: In => Unit, onComplete: => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)
@@ -169,6 +169,7 @@ object Sink {
     def b = builder
     new SyncStreamConsumer[In, In] {
       override def builder: FutureStreamBuilder = b
+
       private var cell: Option[In] = None
 
       override def onNext(in: In): Unit = {
@@ -179,5 +180,10 @@ object Sink {
       override def complete(): In = cell.getOrElse(throw new NoSuchElementException("Stream was empty"))
     }
   }
+
+  /** Creates a Sink that will wait for the `future` to complete and then feed data into the Sink it yields. */
+  def flatten[In, Res](future: Future[Sink[In, Res]])
+                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Res] =
+    DelayedSink(builder, future)
 }
 

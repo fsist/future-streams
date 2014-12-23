@@ -58,6 +58,9 @@ rest of the stream has already started running. They are:
 2.  `case class DelayedPipe[-In, +Out](future: Future[Pipe[In, Out]]) extends Transform[In, Out]`
 3.  `case class DelayedSink[-In, +Res](future: Future[Sink[In, Res]]) extends StreamOutput[In, Res]`
 
+You can construct them using `Source.flatten`, `Pipe.flattenPipe` and `Sink.flatten` respectively. (Don't confuse
+these methods with `Transform.flatten`, which transforms a `List[List[Int]]` to a `List[Int]`.)
+
 As an alternative to using these case classes, when implementing your own inputs, outputs and transformations you can
 also implement the corresponding trait; see below for more on this.
 

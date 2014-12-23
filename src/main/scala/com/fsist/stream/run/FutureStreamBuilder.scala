@@ -162,6 +162,7 @@ class FutureStreamBuilder extends Logging {
           case input: StreamProducer[_] => (input: StreamComponent, new ProducerMachine(input, graphOps))
           case input: DelayedSource[_] => (input: StreamComponent, new DelayedSourceMachine(input, graphOps))
           case output: StreamConsumer[_, _] => (output: StreamComponent, new ConsumerMachine(output, graphOps))
+          case output: DelayedSink[_, _] => (output: StreamComponent, new DelayedSinkMachine(output, graphOps))
           case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
           case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }

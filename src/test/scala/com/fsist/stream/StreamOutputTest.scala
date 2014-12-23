@@ -5,6 +5,7 @@ import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import scala.collection.generic.CanBuildFrom
+import scala.concurrent.Promise
 import scala.concurrent.duration._
 
 class StreamOutputTest extends FunSuite with StreamTester {
@@ -47,4 +48,47 @@ class StreamOutputTest extends FunSuite with StreamTester {
     val stream2 = Source.of(1, 2, 3).singleResult()
     awaitFailure[IllegalArgumentException](stream2, ".single operator on stream with more than one elements")
   }
+
+  test("DelayedSink") {
+    val data = 1 to 10
+    val promise = Promise[Sink[Int, List[Int]]]()
+    val flat = Sink.flatten(promise.future)
+    val result = Source.from(data).to(flat).buildResult()
+
+    awaitTimeout(result, "Stream doesn't complete while waiting for delayed sink")(impatience)
+
+    val tr = Transform.collect[Int, List]()
+    val sink = Sink(tr, tr.single())
+    promise.success(sink)
+
+    assert(result.futureValue == data)
+  }
+
+  test("DelayedSink with empty input") {
+    val data = Seq.empty
+    val promise = Promise[Sink[Int, List[Int]]]()
+    val flat = Sink.flatten(promise.future)
+    val result = Source.from(data).to(flat).buildResult()
+
+    awaitTimeout(result, "Stream doesn't complete while waiting for delayed sink")(impatience)
+
+    val tr = Transform.collect[Int, List]()
+    val sink = Sink(tr, tr.single())
+    promise.success(sink)
+
+    assert(result.futureValue == data)
+  }
+
+  test("DelayedSink (when the Future fails)") {
+    val data = 1 to 10
+    val promise = Promise[Sink[Int, List[Int]]]()
+    val flat = Sink.flatten(promise.future)
+    val result = Source.from(data).to(flat).buildResult()
+
+    val error = new IllegalArgumentException("test")
+    promise.failure(error)
+
+    assert(result.failed.futureValue == error)
+  }
+
 }

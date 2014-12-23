@@ -174,7 +174,7 @@ private[run] object StateMachine extends Logging {
                                  (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
     override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
 
-    override def run(): Unit = input.future map(run(_)) recover {
+    override def run(): Unit = input.future map (run(_)) recover {
       case NonFatal(e) => graph.failGraph(e)
     }
 
@@ -233,6 +233,65 @@ private[run] object StateMachine extends Logging {
       }).composeFailure(graph.failGraph)
 
       Consumer(onNext, onComplete)
+    }
+  }
+
+  class DelayedSinkMachine[In, Res](val output: DelayedSink[In, Res], val graph: GraphOps)
+                                   (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
+    val resultPromise = Promise[Res]()
+
+    completionPromise.future recover {
+      case NonFatal(e) => resultPromise.tryFailure(e)
+    }
+
+    override val running: RunningOutput[In, Res] = RunningOutput(resultPromise.future)
+
+    private val queue = new BoundedAsyncQueue[Option[In]](1)
+
+    @volatile private var substream: Option[RunningStream] = None
+    @volatile private var failed: Option[Throwable] = None
+
+    output.future.map(run(_)).recover {
+      case NonFatal(e) => graph.failGraph(e)
+    }
+
+    /** Actually connect the Sink once the future completes */
+    private def run(sink: Sink[In, Res]): Unit = {
+      val sub = Source.from(queue).to(sink).build()
+      substream = Some(sub)
+
+      sub.completion recover {
+        case NonFatal(e) => graph.failGraph(e)
+      }
+
+      resultPromise.completeWith(sub.apply[Nothing, Res](sink.output).result)
+
+      failed match {
+        case Some(e) => sub.fail(e)
+        case None =>
+      }
+    }
+
+    lazy val consumer: Consumer[In] = {
+      val onNext = AsyncFunc((in: In) => queue.enqueue(Some(in)))
+      val onComplete = AsyncFunc(
+        // This is a convenient way of not trying to access `substream` before we may have initialized it
+        queue.enqueue(None) flatMap (_ => resultPromise.future) flatMap (_ => substream match {
+          case Some(sub) => sub.completion
+          case None => futureSuccess
+        })
+      )
+
+      Consumer(onNext, onComplete)
+    }
+
+    override def userOnError: Func[Throwable, Unit] = (e: Throwable) => {
+      failed = Some(e)
+
+      substream match {
+        case Some(sub) => sub.fail(e)
+        case None =>
+      }
     }
   }
 
