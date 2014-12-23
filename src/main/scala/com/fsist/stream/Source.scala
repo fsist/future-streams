@@ -38,6 +38,11 @@ sealed trait SourceComponent[+Out] extends StreamComponentBase with SourceOps[Ou
   def transform[Next](tr: Transform[Out, Next]): tr.type = connect(tr)
 }
 
+object SourceComponent {
+  implicit def get[Out](source: Source[Out]): SourceComponent[Out] = source.sourceComponent
+  implicit def get[Out](pipe: Pipe[_, Out]): SourceComponent[Out] = pipe.sourceComponent
+}
+
 /** This trait allows extending the sealed SourceComponent trait inside this package. */
 private[stream] trait SourceComponentBase[+Out] extends SourceComponent[Out]
 
