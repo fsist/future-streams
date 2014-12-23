@@ -1,7 +1,5 @@
 package com.fsist.stream
 
-import java.util.concurrent.atomic.AtomicLong
-
 import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
@@ -428,5 +426,10 @@ object Transform {
 
     override implicit def builder: FutureStreamBuilder = b
   }
+
+  /** A stream component that reacts to stream errors and otherwise passes on the stream elements unchanged. */
+  def onError[Elem](onError: Func[Throwable, Unit])
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+    SingleTransform(builder, Func.pass, Func.nop, onError)
 }
 

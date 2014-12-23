@@ -23,7 +23,6 @@ TODOs:
 - Stop SyncFunc extending Function1; it inherits combinators such as .andThen which are confusing since they don't
   create Funcs (unless we override them)
 - Iterable.empty is a def not a val, and it's relatively expensive! Should make a val of my own and replace all usages in core lib.
-- Add SourceOps .onError
 - Add a note to the README about the push-through model
 - Document Pipe.flatten better in the README, including noting the point of asynchronicity on input
 - Add Source and Sink and StreamResult flatteners

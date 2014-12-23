@@ -194,6 +194,23 @@ trait SourceOps[+Out] {
     sourceComponent.transform(tr)
   }
 
+  // Transform.onError
+
+  def onError(onError: Throwable => Unit): Transform[_ <: Out, Out] = {
+    val tr = Transform.onError[Out](onError)
+    sourceComponent.transform(tr)
+  }
+
+  def onErrorAsync(onError: Throwable => Future[Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.onError[Out](AsyncFunc(onError))
+    sourceComponent.transform(tr)
+  }
+
+  def onErrorFunc(onError: Func[Throwable, Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.onError[Out](onError)
+    sourceComponent.transform(tr)
+  }
+
   // ===================================================================================================================
   // Sink
   // ===================================================================================================================
