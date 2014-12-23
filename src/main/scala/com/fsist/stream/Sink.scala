@@ -12,6 +12,12 @@ import scala.language.implicitConversions
 sealed trait SinkComponent[-In] extends StreamComponentBase {
 }
 
+object SinkComponent {
+  implicit def get[In](sink: Sink[In, _]): SinkComponent[In] = sink.sinkComponent
+  implicit def get[In](pipe: Pipe[In, _]): SinkComponent[In] = pipe.sink
+}
+
+
 /** This trait allows extending the sealed SinkComponent trait inside this package. */
 private[stream] trait SinkComponentBase[-In] extends SinkComponent[In]
 
