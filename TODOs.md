@@ -41,9 +41,6 @@ TODOs:
 
 These v1 patterns need v2 equivalents + docs: 
 
-- Often library code has to provide a StreamOutput with a non-Unit result. E.g., HashingUtil provides a Sink[ByteString]
-  that calculates a hash. But it may have internal components (i.e. be composed of a Pipe + an actual StreamOutput).
-  This limits it to a Sink type, and not a StreamOutput, but then it doesn't have a result. What to do?
 - SprayAckStream inner class AckActor needs to fail the outer sink (= the stream) asynchronously in some cases,
   but it only has access to the Sink model, not the running component. The problem is that AckActor is instantiated
   in a special and ugly way which must be called synchronously from its to-be-Parent actor...
