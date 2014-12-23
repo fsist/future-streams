@@ -20,6 +20,14 @@ private[stream] trait SinkComponentBase[-In] extends SinkComponent[In]
   * See the README for the semantics of the three onXxx functions.
   */
 sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
+  /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
+  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
+
+  /** A shortcut method that calls `build` and returns the future result produced by this component. */
+  def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
+}
+
+sealed trait StreamConsumer[-In, +Res] extends StreamOutput[In, Res] {
   /** Called on each input element, non-concurrently with itself and onComplete. */
   def onNext: Func[In, Unit]
 
@@ -34,19 +42,13 @@ sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
     * This is called *concurrently* with onNext and onComplete.
     */
   def onError: Func[Throwable, Unit]
-
-  /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
-  def buildAndGet()(implicit ec: ExecutionContext): RunningOutput[In, Res] = build()(ec)(this)
-
-  /** A shortcut method that calls `build` and returns the future result produced by this component. */
-  def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 }
 
 /** A trait that allows implementing a custom StreamOutput that processes items synchronously.
   *
   * This often allows writing more elegant code for complex stateful consumers.
   */
-trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In, Unit] with NewBuilder {
+trait SyncStreamConsumer[-In, +Res] extends StreamConsumer[In, Res] with SyncFunc[In, Unit] with NewBuilder {
   final override def onNext: Func[In, Unit] = this
 
   final override def onComplete: Func[Unit, Res] = complete()
@@ -76,7 +78,7 @@ trait SyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with SyncFunc[In
   *
   * This often allows writing more elegant code for complex stateful consumers.
   */
-trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[In, Unit] with NewBuilder {
+trait AsyncStreamConsumer[-In, +Res] extends StreamConsumer[In, Res] with AsyncFunc[In, Unit] with NewBuilder {
   final override def onNext: Func[In, Unit] = this
 
   final override def onComplete: Func[Unit, Res] = AsyncFunc.withEc((a: Unit) => (ec: ExecutionContext) => complete()(ec))
@@ -106,13 +108,17 @@ trait AsyncStreamOutput[-In, +Res] extends StreamOutput[In, Res] with AsyncFunc[
   * @see [[com.fsist.stream.StreamOutput]]
   */
 final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder,
-                                         onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit]) extends StreamOutput[In, Res]
+                                         onNext: Func[In, Unit],
+                                         onComplete: Func[Unit, Res],
+                                         onError: Func[Throwable, Unit]) extends StreamConsumer[In, Res]
 
 object SimpleOutput {
   def apply[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit])
                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): SimpleOutput[In, Res] =
     apply(builder, onNext, onComplete, onError)
 }
+
+final case class DelayedSink[-In, +Res](builder: FutureStreamBuilder, future: Future[Sink[In, Res]]) extends StreamOutput[In, Res]
 
 /** A part of a stream with a single unconnected SinkComponent.
   *
@@ -160,7 +166,7 @@ object Sink {
     */
   def single[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, In] = {
     def b = builder
-    new SyncStreamOutput[In, In] {
+    new SyncStreamConsumer[In, In] {
       override def builder: FutureStreamBuilder = b
       private var cell: Option[In] = None
 

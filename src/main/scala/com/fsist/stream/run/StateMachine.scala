@@ -170,7 +170,7 @@ private[run] object StateMachine extends Logging {
     }
   }
 
-  class OutputMachine[In, Res](val output: StreamOutput[In, Res], val graph: GraphOps)
+  class ConsumerMachine[In, Res](val output: StreamConsumer[In, Res], val graph: GraphOps)
                               (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()
 

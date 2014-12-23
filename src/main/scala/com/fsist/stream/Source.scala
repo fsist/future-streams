@@ -119,7 +119,10 @@ final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterat
 /** A Source that generates elements by calling a user-supplied `producer` function. */
 final case class GeneratorSource[+Out](builder: FutureStreamBuilder, producer: Func[Unit, Out], onError: Func[Throwable, Unit]) extends StreamProducer[Out]
 
-final case class DelayedSource[+Out](builder: FutureStreamBuilder, future: Future[Source[Out]]) extends StreamInput[Out]
+/** A StreamInput or more complex Source which will become available, and start operating, once `future` is fulfilled. */
+final case class DelayedSource[+Out](builder: FutureStreamBuilder, future: Future[Source[Out]]) extends StreamInput[Out] {
+  override def onError: Func[Throwable, Unit] = Func.nop
+}
 
 /** A part of a stream with a single unconnected SourceComponent.
   *
