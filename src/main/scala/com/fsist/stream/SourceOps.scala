@@ -320,6 +320,14 @@ trait SourceOps[+Out] {
     scatterer
   }
 
+  // Connector.merge
+
+  def merge[Super >: Out](sources: SourceComponent[Super]*): Merger[Super] = {
+    val merger = Merger[Super](sources.size + 1)
+    merger.connectInputs((sourceComponent +: sources).toList)
+    merger
+  }
+
   // ===================================================================================================================
   // Source
   // ===================================================================================================================
