@@ -3,6 +3,7 @@ package com.fsist.stream
 import com.fsist.util.concurrent.{BoundedAsyncQueue, AsyncQueue, Func}
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
+import scala.concurrent.Promise
 import scala.concurrent.duration._
 
 class StreamInputTest extends FunSuite with StreamTester {
@@ -90,5 +91,29 @@ class StreamInputTest extends FunSuite with StreamTester {
 
     pusher.complete().futureValue
     assert(result.futureValue == List(1,2))
+  }
+
+  test("DelayedSource") {
+    val data = 1 to 10
+    val promise = Promise[Source[Int]]()
+    val stream = Source.flatten(promise.future).toList.singleResult()
+
+    awaitTimeout(stream, "Stream doesn't complete while waiting for delayed source")(impatience)
+
+    val source = Source.from(data)
+    promise.success(source)
+
+    assert(stream.futureValue == data)
+  }
+
+  test("DelayedSource (when the Future fails)") {
+    val data = 1 to 10
+    val promise = Promise[Source[Int]]()
+    val stream = Source.flatten(promise.future).toList.singleResult()
+
+    val error = new IllegalArgumentException("test")
+    promise.failure(error)
+
+    assert(stream.failed.futureValue == error)
   }
 }

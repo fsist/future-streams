@@ -23,6 +23,7 @@ sealed trait RunningStreamComponent {
 case class RunningInput[+Out](completion: Future[Unit],
                               input: StreamInput[Out]) extends RunningStreamComponent
 
+
 /** @param result succeeds or fails together with `completion`, but contains the calculated result if it succeeds. */
 case class RunningOutput[-In, +Res](result: Future[Res])
                                    (implicit ec: ExecutionContext) extends RunningStreamComponent {

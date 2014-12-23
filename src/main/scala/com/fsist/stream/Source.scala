@@ -184,6 +184,14 @@ object Source {
   /** Creates a Source that produces no elements. This is just an alias for `Source.of`. */
   def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = of()
 
+  /** Creates a Source that will produce elements from the Source eventually yielded by the `future`.
+    *
+    * Until `future` completes, this source does nothing.
+    */
+  def flatten[Out](future: Future[Source[Out]])
+                  (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamInput[Out] =
+    DelayedSource(builder, future)
+
   /** Creates an input that produces the elements pushed into this queue. Pushing `None` signifies end of stream, after 
     * which no more elements will be dequeued.
     */

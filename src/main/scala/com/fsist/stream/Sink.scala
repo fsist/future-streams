@@ -118,6 +118,7 @@ object SimpleOutput {
     apply(builder, onNext, onComplete, onError)
 }
 
+/** A StreamOutput or more complex Sink which will become available, and start operating, once `future` is fulfilled. */
 final case class DelayedSink[-In, +Res](builder: FutureStreamBuilder, future: Future[Sink[In, Res]]) extends StreamOutput[In, Res]
 
 /** A part of a stream with a single unconnected SinkComponent.

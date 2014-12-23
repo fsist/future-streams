@@ -117,7 +117,7 @@ private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachin
 private[run] object StateMachine extends Logging {
 
   class ProducerMachine[Out](val input: StreamProducer[Out], val graph: GraphOps)
-                         (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
+                            (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
     override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
 
     // Acquire copies of user functions
@@ -170,8 +170,47 @@ private[run] object StateMachine extends Logging {
     }
   }
 
+  class DelayedSourceMachine[Out](val input: DelayedSource[Out], val graph: GraphOps)
+                                 (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
+    override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
+
+    override def run(): Unit = input.future map(run(_)) recover {
+      case NonFatal(e) => graph.failGraph(e)
+    }
+
+    @volatile private var substream: Option[RunningStream] = None
+    @volatile private var failed: Option[Throwable] = None
+
+    /** Actually runs the source when the future completes */
+    def run(source: Source[Out]): Unit = {
+      val Consumer(consumerOnNext, consumerOnComplete) = next.get.consumer
+
+      val sub = source.foreachFunc(
+        consumerOnNext, consumerOnComplete
+      ).build()
+      substream = Some(sub)
+
+      failed match {
+        case Some(e) => sub.fail(e)
+        case None =>
+      }
+
+      sub.completion recover {
+        case NonFatal(e) => graph.failGraph(e)
+      }
+    }
+
+    override def userOnError: Func[Throwable, Unit] = (e: Throwable) => {
+      failed = Some(e)
+      substream match {
+        case Some(sub) => sub.fail(e)
+        case None =>
+      }
+    }
+  }
+
   class ConsumerMachine[In, Res](val output: StreamConsumer[In, Res], val graph: GraphOps)
-                              (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
+                                (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()
 
     completionPromise.future recover {

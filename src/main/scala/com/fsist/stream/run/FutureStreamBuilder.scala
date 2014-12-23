@@ -160,6 +160,7 @@ class FutureStreamBuilder extends Logging {
       (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
         node match {
           case input: StreamProducer[_] => (input: StreamComponent, new ProducerMachine(input, graphOps))
+          case input: DelayedSource[_] => (input: StreamComponent, new DelayedSourceMachine(input, graphOps))
           case output: StreamConsumer[_, _] => (output: StreamComponent, new ConsumerMachine(output, graphOps))
           case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
           case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
