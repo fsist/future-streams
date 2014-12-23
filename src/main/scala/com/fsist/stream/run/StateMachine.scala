@@ -291,7 +291,7 @@ private[run] object StateMachine extends Logging {
           val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
 
-        case DelayedTransform(builder, future, onError) =>
+        case DelayedPipe(builder, future, onError) =>
           future.value match {
             case Some(Success(pipe)) =>
               val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)

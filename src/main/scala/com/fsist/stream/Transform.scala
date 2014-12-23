@@ -129,12 +129,12 @@ object MultiTransform {
   * Otherwise, components upstream of this transform will pause when they try to push data into it,
   * until the future is completed.
   */
-final case class DelayedTransform[-In, +Out](builder: FutureStreamBuilder, future: Future[Pipe[In, Out]],
+final case class DelayedPipe[-In, +Out](builder: FutureStreamBuilder, future: Future[Pipe[In, Out]],
                                              onError: Func[Throwable, Unit] = Func.nop) extends Transform[In, Out]
 
-object DelayedTransform {
+object DelayedPipe {
   def apply[In, Out](future: Future[Pipe[In, Out]])
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
+                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedPipe[In, Out] =
     apply(builder, future)
 }
 
@@ -150,11 +150,14 @@ object Transform {
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)
 
-  /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe. */
+  /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe.
+    *
+    * Do not confuse with `flatten`, which transforms a stream of Iterable[T] to a stream of T.
+    */
   def flattenPipe[In, Out](future: Future[Pipe[In, Out]],
                            onError: Func[Throwable, Unit] = Func.nop)
-                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedTransform[In, Out] =
-    DelayedTransform(builder, future, onError)
+                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedPipe[In, Out] =
+    DelayedPipe(builder, future, onError)
 
   def filter[In](filter: Func[In, Boolean])
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {

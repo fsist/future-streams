@@ -55,5 +55,5 @@ object Pipe {
   def flatten[In, Out](future:  Future[Pipe[In, Out]],
                        onError: Func[Throwable, Unit] = Func.nop)
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Pipe[In, Out] =
-    Pipe(DelayedTransform(builder, future, onError))
+    Pipe(DelayedPipe(builder, future, onError))
 }
