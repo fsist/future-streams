@@ -221,6 +221,23 @@ trait SourceOps[+Out] {
     sourceComponent.transform(tr)
   }
 
+  // Transform.onComplete
+
+  def onComplete(onComplete: => Unit): Transform[_ <: Out, Out] = {
+    val tr = Transform.onComplete[Out](onComplete)
+    sourceComponent.transform(tr)
+  }
+
+  def onCompleteAsync(onComplete: => Future[Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.onComplete[Out](AsyncFunc(onComplete))
+    sourceComponent.transform(tr)
+  }
+
+  def onCompleteFunc(onComplete: Func[Unit, Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.onComplete[Out](onComplete)
+    sourceComponent.transform(tr)
+  }
+  
   // ===================================================================================================================
   // Sink
   // ===================================================================================================================

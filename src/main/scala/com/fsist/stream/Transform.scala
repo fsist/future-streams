@@ -437,5 +437,11 @@ object Transform {
   def onError[Elem](onError: Func[Throwable, Unit])
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
     SingleTransform(builder, Func.pass, Func.nop, onError)
+
+  /** A stream component that does something side-effecting when the stream completes,
+    * and otherwise passes on the stream elements unchanged. */
+  def onComplete[Elem](onComplete: Func[Unit, Unit])
+                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+    SingleTransform(builder, Func.pass, onComplete, Func.nop)
 }
 
