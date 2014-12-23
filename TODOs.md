@@ -38,9 +38,3 @@ TODOs:
 - Why not make the builder an implicit param in the model case classes? It seems to work fine for e.g. Merger
 - Using default arguments for onComplete, onError functions can break type inference or implicit Func conversion.
   Using several overloads, each with more arguments, seems to do better. If confirmed, we could migrate wholesale.
-
-These v1 patterns need v2 equivalents + docs: 
-
-- SprayAckStream inner class AckActor needs to fail the outer sink (= the stream) asynchronously in some cases,
-  but it only has access to the Sink model, not the running component. The problem is that AckActor is instantiated
-  in a special and ugly way which must be called synchronously from its to-be-Parent actor...
