@@ -129,8 +129,9 @@ object MultiTransform {
   * Otherwise, components upstream of this transform will pause when they try to push data into it,
   * until the future is completed.
   */
-final case class DelayedPipe[-In, +Out](builder: FutureStreamBuilder, future: Future[Pipe[In, Out]],
-                                             onError: Func[Throwable, Unit] = Func.nop) extends Transform[In, Out]
+final case class DelayedPipe[-In, +Out](builder: FutureStreamBuilder, future: Future[Pipe[In, Out]]) extends Transform[In, Out] {
+  override def onError: Func[Throwable, Unit] = Func.nop // The Pipe produced by the Future can supply its own onError
+}
 
 object DelayedPipe {
   def apply[In, Out](future: Future[Pipe[In, Out]])
@@ -154,10 +155,9 @@ object Transform {
     *
     * Do not confuse with `flatten`, which transforms a stream of Iterable[T] to a stream of T.
     */
-  def flattenPipe[In, Out](future: Future[Pipe[In, Out]],
-                           onError: Func[Throwable, Unit] = Func.nop)
+  def flattenPipe[In, Out](future: Future[Pipe[In, Out]])
                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedPipe[In, Out] =
-    DelayedPipe(builder, future, onError)
+    DelayedPipe(builder, future)
 
   def filter[In](filter: Func[In, Boolean])
                 (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {
