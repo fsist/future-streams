@@ -159,10 +159,10 @@ class FutureStreamBuilder extends Logging {
     val componentMachines: Map[StreamComponent, StateMachine] =
       (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
         node match {
-          case input: StreamInput[_] => (input: StreamComponent, new InputMachine(input, graphOps))
+          case input: StreamProducer[_] => (input: StreamComponent, new ProducerMachine(input, graphOps))
           case output: StreamOutput[_, _] => (output: StreamComponent, new OutputMachine(output, graphOps))
           case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
-          case other => ??? // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
+          case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }
       }).toMap
 

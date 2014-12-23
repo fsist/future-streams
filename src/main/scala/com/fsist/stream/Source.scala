@@ -51,6 +51,11 @@ case class EndOfStreamException() extends Exception("End of stream")
 
 /** A Source that introduces data into the stream from elsewhere, rather than from an upstream component. */
 sealed trait StreamInput[+Out] extends SourceComponentBase[Out] {
+  def onError: Func[Throwable, Unit]
+}
+
+/** A Source that produces data by repeatedly calling the user-provided function `producer`. */
+sealed trait StreamProducer[+Out] extends StreamInput[Out] {
 
   /** Called non-concurrently to produce the source elements. To indicate EOF, this function needs to throw a
     * EndOfStreamException.
@@ -64,7 +69,7 @@ sealed trait StreamInput[+Out] extends SourceComponentBase[Out] {
   *
   * This often allows writing more elegant code for complex stateful producers.
   */
-trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] with NewBuilder {
+trait SyncStreamProducer[+Out] extends StreamProducer[Out] with SyncFunc[Unit, Out] with NewBuilder {
   final override def producer: Func[Unit, Out] = this
 
   final override def apply(a: Unit): Out = produce()
@@ -85,7 +90,7 @@ trait SyncStreamInput[+Out] extends StreamInput[Out] with SyncFunc[Unit, Out] wi
   *
   * This often allows writing more elegant code for complex stateful producers.
   */
-trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out] with NewBuilder {
+trait AsyncStreamProducer[+Out] extends StreamProducer[Out] with AsyncFunc[Unit, Out] with NewBuilder {
   final override def producer: Func[Unit, Out] = this
 
   final override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Out] = produce()(ec)
@@ -103,7 +108,7 @@ trait AsyncStreamInput[+Out] extends StreamInput[Out] with AsyncFunc[Unit, Out] 
 }
 
 /** A Source producing elements from an Iterator. */
-final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterator[Out]) extends StreamInput[Out] with SyncFunc[Unit, Out] {
+final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterator[Out]) extends StreamProducer[Out] with SyncFunc[Unit, Out] {
   override def producer: Func[Unit, Out] = this
 
   override def apply(unit: Unit): Out = if (iter.hasNext) iter.next() else throw new EndOfStreamException
@@ -112,7 +117,9 @@ final case class IteratorSource[+Out](builder: FutureStreamBuilder, iter: Iterat
 }
 
 /** A Source that generates elements by calling a user-supplied `producer` function. */
-final case class GeneratorSource[+Out](builder: FutureStreamBuilder, producer: Func[Unit, Out], onError: Func[Throwable, Unit]) extends StreamInput[Out]
+final case class GeneratorSource[+Out](builder: FutureStreamBuilder, producer: Func[Unit, Out], onError: Func[Throwable, Unit]) extends StreamProducer[Out]
+
+final case class DelayedSource[+Out](builder: FutureStreamBuilder, future: Future[Source[Out]]) extends StreamInput[Out]
 
 /** A part of a stream with a single unconnected SourceComponent.
   *
@@ -215,7 +222,7 @@ object Source {
     * when the stream runs.
     */
   def pusher[Out]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder()): Pusher[Out] with StreamInput[Out] =
-    new Pusher[Out](new AsyncQueue[Option[Out]]) with AsyncStreamInput[Out] {
+    new Pusher[Out](new AsyncQueue[Option[Out]]) with AsyncStreamProducer[Out] {
       override def builder: FutureStreamBuilder = b
 
       override def produce()(implicit ec: ExecutionContext): Future[Out] = queue.dequeue() map {
@@ -248,7 +255,7 @@ object Source {
     */
   def asyncPusher[Out](queueSize: Int = 1)
                       (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): AsyncPusher[Out] with StreamInput[Out] = {
-    new AsyncPusher[Out](new BoundedAsyncQueue[Option[Out]](queueSize)) with AsyncStreamInput[Out] {
+    new AsyncPusher[Out](new BoundedAsyncQueue[Option[Out]](queueSize)) with AsyncStreamProducer[Out] {
       override def builder: FutureStreamBuilder = b
 
       override def produce()(implicit ec: ExecutionContext): Future[Out] = queue.dequeue() map {

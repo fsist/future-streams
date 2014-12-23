@@ -51,6 +51,13 @@ They are:
 
 All of these case classes have `Func` arguments describing their behavior.
 
+There are also three special case classes which model a part of the stream that will only become available after the
+rest of the stream has already started running. They are:
+
+1.  `case class DelayedSource[+Out](future: Future[Source[Out]]) extends StreamInput[Out]`
+2.  `case class DelayedPipe[-In, +Out](future: Future[Pipe[In, Out]]) extends Transform[In, Out]`
+3.  `case class DelayedSink[-In, +Res](future: Future[Sink[In, Res]]) extends StreamOutput[In, Res]`
+
 As an alternative to using these case classes, when implementing your own inputs, outputs and transformations you can
 also implement the corresponding trait; see below for more on this.
 
@@ -161,7 +168,7 @@ approach for complex or stateful implementations.
 
 The traits have separate synchronous and asynchronous variants. They are:
 
-1.  `SyncStreamInput` and `AsyncStreamInput`, corresponding to `Source.genereate`.
+1.  `SyncStreamProducer` and `AsyncStreamProducer`, corresponding to `Source.genereate`.
 2.  `SyncStreamOutput` and `AsyncStreamOutput`, corresponding to `Sink.foreach`.
 3.  `SyncSingleTransform` and `AsyncSingleTransform`, corresponding to `Transform.map` and the `SingleTransform` case class.
 4.  `SyncManyTransform` and `AsyncManyTransform`, corresponding to `Transform.flatMap` and the `ManyTransform` case class.

@@ -116,7 +116,7 @@ private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachin
 
 private[run] object StateMachine extends Logging {
 
-  class InputMachine[Out](val input: StreamInput[Out], val graph: GraphOps)
+  class ProducerMachine[Out](val input: StreamProducer[Out], val graph: GraphOps)
                          (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
     override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
 
