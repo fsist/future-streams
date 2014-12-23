@@ -6,7 +6,7 @@ import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import scala.concurrent.Promise
 import scala.concurrent.duration._
 
-class StreamInputTest extends FunSuite with StreamTester {
+class SourceTest extends FunSuite with StreamTester {
   test("IteratorSource") {
     val range = 1 to 10
     val iter = range.iterator
@@ -115,5 +115,18 @@ class StreamInputTest extends FunSuite with StreamTester {
     promise.failure(error)
 
     assert(stream.failed.futureValue == error)
+  }
+
+  test("Source.concat") {
+    val data = 1 to 5
+
+    for (count <- 0 to 5) {
+      val sources = Seq.fill(count)(Source.from(data))
+      val source = Source.concat(sources)
+      val result = source.toList.singleResult().futureValue.sorted
+
+      val expected = Seq.fill(count)(data).flatten.sorted
+      assert(result == expected, s"Concat $count sources")
+    }
   }
 }

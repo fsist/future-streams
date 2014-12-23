@@ -145,6 +145,12 @@ object Transform {
                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, Func.nop, Func.nop)
 
+  // This is a separate overload instead of an onComplete optional argument to make inference better
+
+  def map[In, Out](mapper: Func[In, Out], onComplete: Func[Unit, Unit])
+                  (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
+    SingleTransform(builder, mapper, onComplete, Func.nop)
+
   def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Iterable.empty[Out])
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)

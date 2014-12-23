@@ -1,9 +1,10 @@
 package com.fsist.stream
 
+import akka.http.util.FastFuture
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent._
 
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Promise, ExecutionContext, Future}
 import scala.util.control.ControlThrowable
 
 import scala.language.implicitConversions
@@ -273,6 +274,44 @@ object Source {
         case Some(out) => out
         case None => throw new EndOfStreamException
       }
+    }
+  }
+
+  /** Merges data from several inputs to one output in order, taking all data from the first input, then all data from the
+    * second output, and so on. */
+  def concat[Out](sources: Seq[SourceComponent[Out]]): SourceComponent[Out] = {
+    if (sources.isEmpty) Source.empty[Out]
+    else {
+      implicit val builder = sources(0).builder
+
+      // This is a quick and dirty, inefficient implementation. The Merger is needed simply to trick the builder
+      // into thinking all components are connected.
+      // What's really needed is a Core implementation that lets us feed data directly downstream.
+
+      val count = sources.size
+      val merger = Merger[Out](count)
+      val promises = Vector.fill(count)(Promise[Unit]())
+      val futures = promises.map(p => new FastFuture(p.future))
+
+      promises(0).success(())
+
+      def onNext(index: Int) = new AsyncFunc[Out, Out] {
+        override def apply(input: Out)(implicit ec: ExecutionContext): Future[Out] = {
+          futures(index).map(_ => input)
+        }
+      }
+
+      def onComplete(index: Int) = if (index == count - 1) Func.nop
+      else Func {
+        promises(index + 1).success(())
+        ()
+      }
+
+      for ((source, index) <- sources.zipWithIndex) {
+        source.mapFunc(onNext(index), onComplete(index)).connect(merger.inputs(index))
+      }
+
+      merger.output
     }
   }
 }

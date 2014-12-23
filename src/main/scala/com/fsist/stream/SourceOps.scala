@@ -1,5 +1,7 @@
 package com.fsist.stream
 
+import java.util.concurrent.atomic.AtomicReference
+
 import akka.http.util.FastFuture
 import com.fsist.stream.Transform.Aside
 import com.fsist.util.concurrent.{AsyncFunc, Func}
@@ -8,7 +10,7 @@ import scala.annotation.unchecked.uncheckedVariance
 import scala.collection.TraversableOnce
 import scala.collection.generic.CanBuildFrom
 import scala.collection.immutable.BitSet
-import scala.concurrent.{ExecutionContext, Future}
+import scala.concurrent.{Promise, ExecutionContext, Future}
 
 import scala.language.higherKinds
 
@@ -37,11 +39,19 @@ trait SourceOps[+Out] {
   def map[Next](mapper: Out => Next): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(mapper))
 
+  // This is a separate overload instead of an onComplete optional argument to make inference better
+  def map[Next](mapper: Out => Next, onComplete: => Unit): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(mapper, onComplete))
+
   def mapAsync[Next](mapper: Out => Future[Next]): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(AsyncFunc(mapper)))
 
   def mapFunc[Next](mapper: Func[Out, Next]): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(mapper))
+
+  // This is a separate overload instead of an onComplete optional argument to make inference better
+  def mapFunc[Next](mapper: Func[Out, Next], onComplete: Func[Unit, Unit]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(mapper, onComplete))
 
   // Transform.flatMap
 
@@ -71,7 +81,7 @@ trait SourceOps[+Out] {
     sourceComponent.transform(Transform.filter(filter))
 
   // Transform.foldLeft
-  
+
   def foldLeft[Super >: Out, Res](init: Res)
                                  (onNext: (Res, Super) => Res): SourceComponent[Res] = {
     val tr = Transform.foldLeft[Super, Res](init)(onNext.tupled)
@@ -172,21 +182,21 @@ trait SourceOps[+Out] {
     val tr = Transform.headOption[Out]()
     sourceComponent.transform(tr)
   }
-  
+
   // Transform.tapHead
 
   def tapHead(): Transform[_ <: Out, Out] with Aside[Option[Out]] = {
     val tr = Transform.tapHead[Out]()
     sourceComponent.transform(tr)
   }
-  
+
   // Transform.append
-  
+
   def append[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
     val tr = Transform.append[Super](elems)
     sourceComponent.transform(tr)
   }
-  
+
   // Transform.prepend
 
   def prepend[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
@@ -309,4 +319,18 @@ trait SourceOps[+Out] {
     sourceComponent.to(scatterer.inputs(0))
     scatterer
   }
+
+  // ===================================================================================================================
+  // Source
+  // ===================================================================================================================
+
+  // Source.concat
+
+  /** Concatenate these sources after the current one.
+    *
+    * This is named concatWith and not simply Concat because SourceOps.concat refers to the unrelated Transform.concat.
+    *
+    * @see [[com.fsist.stream.Source.concat]] */
+  def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
+    Source.concat(sourceComponent +: sources)
 }

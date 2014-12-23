@@ -1,14 +1,12 @@
 package com.fsist.stream
 
-import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
-import scala.collection.generic.CanBuildFrom
 import scala.concurrent.Promise
 import scala.concurrent.duration._
 
-class StreamOutputTest extends FunSuite with StreamTester {
+class SinkTest extends FunSuite with StreamTester {
   test("SimpleOutput") {
     val data = 1 to 10
     val source = Source.from(data)
