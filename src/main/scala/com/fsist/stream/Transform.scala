@@ -83,7 +83,7 @@ trait SyncManyTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[
   def onNext(in: In): Iterable[Out]
 
   /** Called when the component completes. See the README for detailed semantics. */
-  def onComplete(): Iterable[Out] = Iterable.empty
+  def onComplete(): Iterable[Out] = emptyIterable
 }
 
 /** Implement this trait (at least the onNext method) to create a new synchronous one-to-many Transform. */
@@ -94,7 +94,7 @@ trait AsyncManyTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFun
   def onNext(in: In)(implicit ec: ExecutionContext): Future[Iterable[Out]]
 
   /** Called when the component completes. See the README for detailed semantics. */
-  def onComplete()(implicit ec: ExecutionContext): Future[Iterable[Out]] = Future.successful(Iterable.empty)
+  def onComplete()(implicit ec: ExecutionContext): Future[Iterable[Out]] = futureEmptyIterable
 }
 
 /** A 1-to-1 transformation of stream elements, equivalent to a `map`. */
@@ -116,7 +116,7 @@ final case class MultiTransform[-In, +Out](builder: FutureStreamBuilder, onNext:
 
 object MultiTransform {
   def apply[In, Out](onNext: Func[In, Iterable[Out]],
-                     onComplete: Func[Unit, Iterable[Out]] = Iterable.empty[Out], onError: Func[Throwable, Unit] = Func.nop)
+                     onComplete: Func[Unit, Iterable[Out]] = emptyIterable, onError: Func[Throwable, Unit] = Func.nop)
                     (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): MultiTransform[In, Out] =
     apply(builder, onNext, onComplete, onError)
 }
@@ -151,7 +151,7 @@ object Transform {
                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, onComplete, Func.nop)
 
-  def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Func(Iterable.empty[Out]))
+  def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Func(emptyIterable))
                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)
 
@@ -179,26 +179,25 @@ object Transform {
       }
     }
 
-    MultiTransform(func, Func(List.empty))(builder)
+    MultiTransform(func, Func(emptyIterable))(builder)
   }
 
   def fold[In, Res](init: Res)(onNext: Func[(Res, In), Res])
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
 
     var state = init
-    val empty = Iterable.empty[Res]
     val func: Func[In, Iterable[Res]] = onNext match {
       case syncf: SyncFunc[(Res, In), Res] =>
         (in: In) => {
           state = syncf((state, in))
-          empty
+          emptyIterable
         }
       case asyncf: AsyncFunc[(Res, In), Res] =>
         new AsyncFunc[In, Iterable[Res]] {
           override def apply(in: In)(implicit ec: ExecutionContext): Future[Iterable[Res]] = asyncf((state, in)) map {
             case newState =>
               state = newState
-              empty
+              emptyIterable
           }
         }
     }
@@ -223,7 +222,7 @@ object Transform {
       }
     }
 
-    MultiTransform(builder, onNext, Func(Seq.empty), Func.nop)
+    MultiTransform(builder, onNext, Func(emptyIterable), Func.nop)
   }
 
   def drop[T](count: Long)
@@ -241,7 +240,7 @@ object Transform {
       }
     }
 
-    MultiTransform(builder, onNext, Func(Seq.empty), Func.nop)
+    MultiTransform(builder, onNext, Func(emptyIterable), Func.nop)
   }
 
   /** Transforms a stream of iterable sequences into a stream of their elements. */
@@ -307,11 +306,10 @@ object Transform {
       override def builder: FutureStreamBuilder = b
 
       private val m = cbf.apply()
-      private val empty = Iterable.empty[M[In]]
 
       override def onNext(in: In): Iterable[M[In]] = {
         m += in
-        empty
+        emptyIterable
       }
 
       override def onComplete(): Iterable[M[In]] = {
@@ -339,7 +337,7 @@ object Transform {
 
       override def onNext(in: Coll): Iterable[Coll] = {
         m ++= in
-        Iterable.empty
+        emptyIterable
       }
 
       override def onComplete(): Iterable[Coll] = Iterable(m.result())
@@ -353,7 +351,7 @@ object Transform {
     private var passed = false
 
     override def onNext(in: Elem): Iterable[Elem] = {
-      if (passed) Iterable.empty
+      if (passed) emptyIterable
       else {
         passed = true
         Iterable(in)
@@ -361,7 +359,7 @@ object Transform {
     }
 
     override def onComplete(): Iterable[Elem] =
-      if (passed) Iterable.empty
+      if (passed) emptyIterable
       else throw new NoSuchElementException("stream was empty")
 
     override def toString(): String = "head"
@@ -374,7 +372,7 @@ object Transform {
     private var passed = false
 
     override def onNext(in: Elem): Iterable[Option[Elem]] = {
-      if (passed) Iterable.empty
+      if (passed) emptyIterable
       else {
         passed = true
         Iterable(Some(in))
@@ -382,7 +380,7 @@ object Transform {
     }
 
     override def onComplete(): Iterable[Option[Elem]] =
-      if (passed) Iterable.empty
+      if (passed) emptyIterable
       else Iterable(None)
   }
 

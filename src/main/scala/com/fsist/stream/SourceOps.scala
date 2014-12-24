@@ -67,7 +67,7 @@ trait SourceOps[+Out] {
     sourceComponent.transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
   def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]],
-                        onComplete: Func[Unit, Iterable[Next]] = Func(Iterable.empty)): SourceComponent[Next] =
+                        onComplete: Func[Unit, Iterable[Next]] = Func(emptyIterable)): SourceComponent[Next] =
     sourceComponent.transform(Transform.flatMap(mapper, onComplete))
 
   // Transform.filter
