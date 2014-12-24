@@ -128,7 +128,7 @@ private[run] object StateMachine extends Logging {
       require(next.isDefined, "Graph must be fully linked before running")
 
       val Consumer(onNext, onComplete) = next.get.consumer
-      val handledComplete = onComplete.recover {
+      val handleComplete = onComplete.recover {
         case NonFatal(e) => graph.failGraph(e)
       }
 
@@ -162,7 +162,7 @@ private[run] object StateMachine extends Logging {
 
       mainLoop recover {
         case e: EndOfStreamException =>
-          handledComplete.someApply(())
+          handleComplete.someApply(())
           completionPromise.success(())
         case NonFatal(e) =>
           graph.failGraph(e)
