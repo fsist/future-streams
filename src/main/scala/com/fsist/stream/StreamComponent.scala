@@ -36,17 +36,9 @@ private[stream] trait StreamComponentBase extends StreamComponent
   * You can still override it to plug in your own builder.
   */
 trait NewBuilder { self: StreamComponent =>
-  private[this] val myBuilder = new AtomicReference[FutureStreamBuilder](null)
+  private[this] lazy val myBuilder = new FutureStreamBuilder
 
   // Don't use a val, because then overriding this with a def becomes impossible, and overriding with another val
   // leads to circular initialization issues
-  override implicit def builder: FutureStreamBuilder = {
-    myBuilder.get() match {
-      case null =>
-        val newBuilder = new FutureStreamBuilder
-        if (myBuilder.compareAndSet(null, newBuilder)) newBuilder
-        else builder
-      case b => b
-    }
-  }
+  override implicit def builder: FutureStreamBuilder = myBuilder
 }
