@@ -386,7 +386,7 @@ private[run] object StateMachine extends Logging {
 
         case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
           val onNext = trOnNext ~> Func.foreach(consumer.onNext)
-          val onComplete = Func.pass[Unit] ~> trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          val onComplete = trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
 
         case DelayedPipe(builder, future) =>
