@@ -182,7 +182,7 @@ object Transform {
     MultiTransform(func, Func(List.empty))(builder)
   }
 
-  def foldLeft[In, Res](init: Res)(onNext: Func[(Res, In), Res])
+  def fold[In, Res](init: Res)(onNext: Func[(Res, In), Res])
                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
 
     var state = init

@@ -80,23 +80,23 @@ trait SourceOps[+Out] {
                 (implicit ec: ExecutionContext): SourceComponent[Out] =
     sourceComponent.transform(Transform.filter(filter))
 
-  // Transform.foldLeft
+  // Transform.fold
 
-  def foldLeft[Super >: Out, Res](init: Res)
+  def fold[Super >: Out, Res](init: Res)
                                  (onNext: (Res, Super) => Res): SourceComponent[Res] = {
-    val tr = Transform.foldLeft[Super, Res](init)(onNext.tupled)
+    val tr = Transform.fold[Super, Res](init)(onNext.tupled)
     sourceComponent.transform(tr)
   }
 
-  def foldLeftAsync[Super >: Out, Res](init: Res)
+  def foldAsync[Super >: Out, Res](init: Res)
                                       (onNext: ((Res, Super)) => Future[Res]): SourceComponent[Res] = {
-    val tr = Transform.foldLeft(init)(AsyncFunc(onNext))
+    val tr = Transform.fold(init)(AsyncFunc(onNext))
     sourceComponent.transform(tr)
   }
 
-  def foldLeftFunc[Super >: Out, Res](init: Res)
+  def foldFunc[Super >: Out, Res](init: Res)
                                      (onNext: Func[(Res, Super), Res]): SourceComponent[Res] = {
-    val tr = Transform.foldLeft[Super, Res](init)(onNext)
+    val tr = Transform.fold[Super, Res](init)(onNext)
     sourceComponent.transform(tr)
   }
 

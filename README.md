@@ -300,7 +300,7 @@ And then user code could compose them generically:
 
     val transforms: Seq[Pipe[Int, Int]] = ???
     val source = Source.of(1,2,3)
-    val stream = transforms.foldLeft(source){
+    val stream = transforms.fold(source){
       case (src, tr) => src.transform(tr)
     }
     val result = stream.collect[List].singleResult
