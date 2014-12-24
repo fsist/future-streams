@@ -439,8 +439,14 @@ case class ComposedAsyncFunc[-A, +B, InnerA, InnerB](before: SyncFunc[A, InnerA]
       case syncf: SyncFunc[B, C] => ComposedAsyncFunc[A, C, InnerA, InnerB](before, middle, after ~> syncf)
 
       case asyncf: AsyncFunc[B, C] =>
-        val middle = self.middle ~> self.after ~> asyncf
-        ComposedAsyncFunc(self.before, middle.asAsync, Func.pass[C])
+        // Avoid endless recursion: explicitly compose async-sync-async sandwich
+        val composed = new AsyncFunc[InnerA, C] {
+          override def apply(a: InnerA)(implicit ec: ExecutionContext): Future[C] = {
+            val fut = new FastFuture(self.middle(a))
+            fut.flatMap(b => asyncf(after(b)))
+          }
+        }
+        ComposedAsyncFunc(self.before, composed, Func.pass[C])
     }
   }
 }
