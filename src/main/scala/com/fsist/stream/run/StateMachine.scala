@@ -150,9 +150,10 @@ private[run] object StateMachine extends Logging {
             def loop(): Future[Unit] = {
               throwIfFailed()
               val fut: Future[Unit] = asyncf(())
-              if (fut.isCompleted) loop()
-              else {
-                fut flatMap (_ => startLoop())
+              fut.value match {
+                case Some(Success(())) => loop()
+                case Some(Failure(e)) => throw e
+                case None => fut flatMap (_ => startLoop())
               }
             }
 
