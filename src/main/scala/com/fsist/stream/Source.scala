@@ -40,6 +40,7 @@ sealed trait SourceComponent[+Out] extends StreamComponentBase with SourceOps[Ou
 
 object SourceComponent {
   implicit def get[Out](source: Source[Out]): SourceComponent[Out] = source.sourceComponent
+
   implicit def get[Out](pipe: Pipe[_, Out]): SourceComponent[Out] = pipe.sourceComponent
 }
 
@@ -260,6 +261,7 @@ object Source {
     */
   class AsyncPusher[In](val queue: BoundedAsyncQueue[Option[In]]) {
     def push(in: In): Future[Unit] = queue.enqueue(Some(in))
+
     def complete(): Future[Unit] = queue.enqueue(None)
   }
 
@@ -286,6 +288,7 @@ object Source {
     * second output, and so on. */
   def concat[Out](sources: Seq[SourceComponent[Out]]): SourceComponent[Out] = {
     if (sources.isEmpty) Source.empty[Out]
+    else if (sources.size == 1) sources(0)
     else {
       implicit val builder = sources(0).builder
 
@@ -296,20 +299,25 @@ object Source {
       val count = sources.size
       val merger = Merger[Out](count)
       val promises = Vector.fill(count)(Promise[Unit]())
-      val futures = promises.map(p => new FastFuture(p.future))
 
       promises(0).success(())
 
-      def onNext(index: Int) = new AsyncFunc[Out, Out] {
-        override def apply(input: Out)(implicit ec: ExecutionContext): Future[Out] = {
-          futures(index).map(_ => input)
+      def onNext(index: Int) = {
+        val future = new FastFuture(promises(index).future)
+        new AsyncFunc[Out, Out] {
+          override def apply(input: Out)(implicit ec: ExecutionContext): Future[Out] = {
+            future.map(_ => input)
+          }
         }
       }
 
       def onComplete(index: Int) = if (index == count - 1) Func.nop
-      else Func {
-        promises(index + 1).success(())
-        ()
+      else {
+        val promise = promises(index + 1)
+        Func {
+          promise.success(())
+          ()
+        }
       }
 
       for ((source, index) <- sources.zipWithIndex) {
