@@ -183,7 +183,7 @@ object Transform {
   }
 
   def fold[In, Res](init: Res)(onNext: Func[(Res, In), Res])
-                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
+                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
 
     var state = init
     val func: Func[In, Iterable[Res]] = onNext match {
@@ -250,23 +250,28 @@ object Transform {
   /** Transforms a stream of sequences by emitting sequences containing no more than `count` elements.
     *
     * The emitted sequences are the same as the original ones, except for the last one, which is possibly truncated.
+    *
+    * This works both if the input type Coll is generic (Coll[Elem]), like the standard scala collections, and if it
+    * isn't, like akka.util.ByteString.
     */
-  def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
-                                                         (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+  def takeElements[Elem, Coll](count: Long)
+                              (implicit ev: Coll <:< Traversable[Elem],
+                               cbf: CanBuildFrom[Nothing, Elem, Coll],
+                               builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
     var remaining: Long = count
-    flatMap[Coll[Elem], Coll[Elem]]((input: Coll[Elem]) => {
+    flatMap[Coll, Coll]((input: Coll) => {
       if (remaining <= 0) List.empty
       else {
-        val size = input.size
-        if (size <= remaining) {
-          remaining -= size
+        if (input.size <= remaining) {
+          remaining -= input.size
           List(input)
         }
         else {
-          val ret = input.take(remaining.toInt)
+          val elems = ev(input).take(remaining.toInt)
           remaining = 0
-          List(ret.to[Coll])
+          val builder = cbf()
+          builder ++= elems
+          List(builder.result())
         }
       }
     })
@@ -276,23 +281,28 @@ object Transform {
     *
     * The emitted sequences are a suffix of the original ones, except for the first one, which is itself a suffix of
     * some original sequence.
+    *
+    * This works both if the input type Coll is generic (Coll[Elem]), like the standard scala collections, and if it
+    * isn't, like akka.util.ByteString.
     */
-  def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
-                                                         (implicit cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]],
-                                                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll[Elem], Coll[Elem]] = {
+  def dropElements[Elem, Coll](count: Long)
+                              (implicit ev: Coll <:< Traversable[Elem],
+                               cbf: CanBuildFrom[Nothing, Elem, Coll],
+                               builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
     var remaining: Long = count
-    flatMap[Coll[Elem], Coll[Elem]]((input: Coll[Elem]) => {
+    flatMap[Coll, Coll]((input: Coll) => {
       if (remaining <= 0) List(input)
       else {
-        val size = input.size
-        if (size <= remaining) {
-          remaining -= size
+        if (input.size <= remaining) {
+          remaining -= input.size
           List.empty
         }
         else {
-          val ret = input.drop(remaining.toInt)
+          val elems = ev(input).drop(remaining.toInt)
           remaining = 0
-          List(ret.to[Coll])
+          val builder = cbf()
+          builder ++= elems
+          List(builder.result())
         }
       }
     })

@@ -122,20 +122,20 @@ trait SourceOps[+Out] {
 
   // Transform.takeElements
 
-  def takeElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
-                                                         (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
-    val tr = Transform.takeElements(count)(cbf, sourceComponent.builder)
-    sourceComponent.transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
+  def takeElements[Elem](count: Long)
+                        (implicit ev: Out <:< Traversable[Elem],
+                         cbf: CanBuildFrom[Nothing, Elem, Out@uncheckedVariance]): Transform[_ <: Out, Out] = {
+    val tr = Transform.takeElements(count)(ev, cbf, sourceComponent.builder)
+    sourceComponent.transform(tr)
   }
 
   // Transform.dropElements
 
-  def dropElements[Elem, Coll[Elem] <: Traversable[Elem]](count: Long)
-                                                         (implicit ev: Out@uncheckedVariance =:= Coll[Elem],
-                                                          cbf: CanBuildFrom[Nothing, Elem, Coll[Elem]]): Transform[Coll[Elem], Coll[Elem]] = {
-    val tr = Transform.dropElements(count)(cbf, sourceComponent.builder)
-    sourceComponent.transform(tr.asInstanceOf[Transform[Out, Out]]).asInstanceOf[Transform[Coll[Elem], Coll[Elem]]]
+  def dropElements[Elem](count: Long)
+                        (implicit ev: Out <:< Traversable[Elem],
+                         cbf: CanBuildFrom[Nothing, Elem, Out@uncheckedVariance]): Transform[_ <: Out, Out] = {
+    val tr = Transform.dropElements(count)(ev, cbf, sourceComponent.builder)
+    sourceComponent.transform(tr)
   }
 
   // Transform.collect
@@ -382,7 +382,7 @@ trait SourceOps[+Out] {
     *
     * This is named concatWith and not simply Concat because SourceOps.concat refers to the unrelated Transform.concat.
     *
-    * @see [[com.fsist.stream.Source.concat]]*/
+    * @see [[com.fsist.stream.Source.concat]] */
   def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
     Source.concat(sourceComponent +: sources)
 }
