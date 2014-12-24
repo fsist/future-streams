@@ -39,27 +39,31 @@ trait SourceOps[+Out] {
   def map[Next](mapper: Out => Next): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(mapper))
 
-  // This is a separate overload instead of an onComplete optional argument to make inference better
   def map[Next](mapper: Out => Next, onComplete: => Unit): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(mapper, onComplete))
 
   def mapAsync[Next](mapper: Out => Future[Next]): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(AsyncFunc(mapper)))
 
-  def mapFunc[Next](mapper: Func[Out, Next]): SourceComponent[Next] =
-    sourceComponent.transform(Transform.map(mapper))
+  def mapAsync[Next](mapper: Out => Future[Next], onComplete: => Future[Unit]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.map(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
-  // This is a separate overload instead of an onComplete optional argument to make inference better
-  def mapFunc[Next](mapper: Func[Out, Next], onComplete: Func[Unit, Unit]): SourceComponent[Next] =
+  def mapFunc[Next](mapper: Func[Out, Next], onComplete: Func[Unit, Unit] = Func.nop): SourceComponent[Next] =
     sourceComponent.transform(Transform.map(mapper, onComplete))
 
   // Transform.flatMap
 
-  def flatMap[Next](mapper: Out => Iterable[Next], onComplete: => Iterable[Next] = Iterable.empty): SourceComponent[Next] =
+  def flatMap[Next](mapper: Out => Iterable[Next]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.flatMap(mapper))
+
+  def flatMap[Next](mapper: Out => Iterable[Next], onComplete: => Iterable[Next]): SourceComponent[Next] =
     sourceComponent.transform(Transform.flatMap(mapper, onComplete))
 
+  def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]]): SourceComponent[Next] =
+    sourceComponent.transform(Transform.flatMap(AsyncFunc(mapper)))
+
   def flatMapAsync[Next](mapper: Out => Future[Iterable[Next]],
-                         onComplete: => Future[Iterable[Next]] = FastFuture.successful(Iterable.empty)): SourceComponent[Next] =
+                         onComplete: => Future[Iterable[Next]]): SourceComponent[Next] =
     sourceComponent.transform(Transform.flatMap(AsyncFunc(mapper), AsyncFunc(onComplete)))
 
   def flatMapFunc[Next](mapper: Func[Out, Iterable[Next]],
@@ -83,19 +87,19 @@ trait SourceOps[+Out] {
   // Transform.fold
 
   def fold[Super >: Out, Res](init: Res)
-                                 (onNext: (Res, Super) => Res): SourceComponent[Res] = {
+                             (onNext: (Res, Super) => Res): SourceComponent[Res] = {
     val tr = Transform.fold[Super, Res](init)(onNext.tupled)
     sourceComponent.transform(tr)
   }
 
   def foldAsync[Super >: Out, Res](init: Res)
-                                      (onNext: ((Res, Super)) => Future[Res]): SourceComponent[Res] = {
+                                  (onNext: ((Res, Super)) => Future[Res]): SourceComponent[Res] = {
     val tr = Transform.fold(init)(AsyncFunc(onNext))
     sourceComponent.transform(tr)
   }
 
   def foldFunc[Super >: Out, Res](init: Res)
-                                     (onNext: Func[(Res, Super), Res]): SourceComponent[Res] = {
+                                 (onNext: Func[(Res, Super), Res]): SourceComponent[Res] = {
     val tr = Transform.fold[Super, Res](init)(onNext)
     sourceComponent.transform(tr)
   }
@@ -237,29 +241,52 @@ trait SourceOps[+Out] {
     val tr = Transform.onComplete[Out](onComplete)
     sourceComponent.transform(tr)
   }
-  
+
   // ===================================================================================================================
   // Sink
   // ===================================================================================================================
 
   // Sink.foreach
 
+  def foreach[Super >: Out](func: Super => Unit): StreamOutput[Super, Unit] = {
+    val output = Sink.foreach[Super, Unit](func)
+    sourceComponent.connect(output)
+  }
+
   def foreach[Super >: Out, Res](func: Super => Unit,
-                                 onComplete: => Res = Func.nopLiteral,
-                                 onError: Throwable => Unit = Func.nopLiteral): StreamOutput[Super, Res] = {
+                                 onComplete: => Res): StreamOutput[Super, Res] = {
+    val output = Sink.foreach(func, onComplete)
+    sourceComponent.connect(output)
+  }
+
+  def foreach[Super >: Out, Res](func: Super => Unit,
+                                 onComplete: => Res,
+                                 onError: Throwable => Unit): StreamOutput[Super, Res] = {
     val output = Sink.foreach(func, onComplete, onError)
     sourceComponent.connect(output)
   }
 
+  def foreachAsync[Super >: Out](func: Super => Future[Unit]): StreamOutput[Super, Unit] = {
+    val output = Sink.foreachAsync(func)
+    sourceComponent.to(output)
+  }
+
   def foreachAsync[Super >: Out, Res](func: Super => Future[Unit],
-                                      onComplete: => Future[Res] = futureSuccess,
-                                      onError: Throwable => Unit = Func.nopLiteral): StreamOutput[Super, Res] = {
+                                      onComplete: => Future[Res]): StreamOutput[Super, Res] = {
+    val output = Sink.foreachAsync(func, onComplete)
+    sourceComponent.to(output)
+  }
+
+  def foreachAsync[Super >: Out, Res](func: Super => Future[Unit],
+                                      onComplete: => Future[Res],
+                                      onError: Throwable => Unit): StreamOutput[Super, Res] = {
     val output = Sink.foreachAsync(func, onComplete, onError)
     sourceComponent.to(output)
   }
 
   def foreachFunc[Super >: Out, Res](func: Func[Super, Unit],
-                                     onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop): StreamOutput[Super, Res] = {
+                                     onComplete: Func[Unit, Res] = Func.nop,
+                                     onError: Func[Throwable, Unit] = Func.nop): StreamOutput[Super, Res] = {
     val output = Sink.foreachFunc(func, onComplete, onError)
     sourceComponent.to(output)
   }
@@ -355,7 +382,7 @@ trait SourceOps[+Out] {
     *
     * This is named concatWith and not simply Concat because SourceOps.concat refers to the unrelated Transform.concat.
     *
-    * @see [[com.fsist.stream.Source.concat]] */
+    * @see [[com.fsist.stream.Source.concat]]*/
   def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
     Source.concat(sourceComponent +: sources)
 }
