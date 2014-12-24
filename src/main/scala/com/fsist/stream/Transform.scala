@@ -76,7 +76,7 @@ trait AsyncSingleTransform[-In, +Out] extends UserTransform[In, Out] with AsyncF
 }
 
 /** Implement this trait (at least the onNext method) to create a new synchronous one-to-one Transform. */
-trait SyncManyTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[In, Iterable[Out]] {
+trait SyncMultiTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[In, Iterable[Out]] {
   final override def apply(in: In): Iterable[Out] = onNext(in)
 
   /** Map each successive stream element. See the README for detailed semantics. */
@@ -87,7 +87,7 @@ trait SyncManyTransform[-In, +Out] extends UserTransform[In, Out] with SyncFunc[
 }
 
 /** Implement this trait (at least the onNext method) to create a new synchronous one-to-many Transform. */
-trait AsyncManyTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFunc[In, Iterable[Out]] {
+trait AsyncMultiTransform[-In, +Out] extends UserTransform[In, Out] with AsyncFunc[In, Iterable[Out]] {
   final override def apply(in: In)(implicit ec: ExecutionContext): Future[Iterable[Out]] = onNext(in)
 
   /** Map each successive stream element. See the README for detailed semantics. */
@@ -302,7 +302,7 @@ object Transform {
   def collect[In, M[_]]()(implicit cbf: CanBuildFrom[Nothing, In, M[In]],
                           builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, M[In]] = {
     def b = builder
-    new SyncManyTransform[In, M[In]] {
+    new SyncMultiTransform[In, M[In]] {
       override def builder: FutureStreamBuilder = b
 
       private val m = cbf.apply()
@@ -330,7 +330,7 @@ object Transform {
                            cbf: CanBuildFrom[Nothing, Elem, Coll],
                            builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
     def b = builder
-    new SyncManyTransform[Coll, Coll] {
+    new SyncMultiTransform[Coll, Coll] {
       override def builder: FutureStreamBuilder = b
 
       private val m = cbf.apply()
@@ -345,7 +345,7 @@ object Transform {
   }
 
   /** Passes on the head of the stream and discards the rest. If the stream is empty, fails with NoSuchElementException. */
-  def head[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Elem] = new SyncManyTransform[Elem, Elem] {
+  def head[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Elem] = new SyncMultiTransform[Elem, Elem] {
     override def builder: FutureStreamBuilder = b
 
     private var passed = false
@@ -366,7 +366,7 @@ object Transform {
   }
 
   /** Passes on the head of the stream wrapped in a `Some` and discards the rest, or passes `None` if the stream is empty. */
-  def headOption[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Option[Elem]] = new SyncManyTransform[Elem, Option[Elem]] {
+  def headOption[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Option[Elem]] = new SyncMultiTransform[Elem, Option[Elem]] {
     override def builder: FutureStreamBuilder = b
 
     private var passed = false
@@ -417,7 +417,7 @@ object Transform {
 
   /** Prepend the given elements to those in the stream. */
   def prepend[Elem](elems: Iterable[Elem])
-                   (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] = new SyncManyTransform[Elem, Elem] {
+                   (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] = new SyncMultiTransform[Elem, Elem] {
     private var emitted = false
 
     override def onNext(in: Elem): Iterable[Elem] = {

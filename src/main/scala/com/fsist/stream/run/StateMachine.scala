@@ -375,12 +375,12 @@ private[run] object StateMachine extends Logging {
           val onComplete = trOnComplete ~> consumerOnComplete
           (onNext, onComplete)
 
-        case sync: SyncManyTransform[In, Out] =>
+        case sync: SyncMultiTransform[In, Out] =>
           val onNext = sync ~> Func.foreach(consumerOnNext)
           val onComplete = Func(sync.onComplete()) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)
 
-        case async: AsyncManyTransform[In, Out] =>
+        case async: AsyncMultiTransform[In, Out] =>
           val onNext = async ~> Func.foreach(consumerOnNext)
           val onComplete = AsyncFunc.withEc((x: Unit) => (ec: ExecutionContext) => async.onComplete()(ec)) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
           (onNext, onComplete)

@@ -174,7 +174,7 @@ The traits have separate synchronous and asynchronous variants. They are:
 1.  `SyncStreamProducer` and `AsyncStreamProducer`, corresponding to `Source.genereate`.
 2.  `SyncStreamConsumer` and `AsyncStreamConsumer`, corresponding to `Sink.foreach`.
 3.  `SyncSingleTransform` and `AsyncSingleTransform`, corresponding to `Transform.map` and the `SingleTransform` case class.
-4.  `SyncManyTransform` and `AsyncManyTransform`, corresponding to `Transform.flatMap` and the `ManyTransform` case class.
+4.  `SyncMultiTransform` and `AsyncMultiTransform`, corresponding to `Transform.flatMap` and the `MultiTransform` case class.
 
 ### Constructing Funcs
 
