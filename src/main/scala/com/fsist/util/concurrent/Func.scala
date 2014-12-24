@@ -227,7 +227,7 @@ object Func {
 }
 
 /** The synchronous case of [[Func]]. */
-trait SyncFunc[-A, +B] extends Func[A, B] with (A => B) {
+trait SyncFunc[-A, +B] extends Func[A, B] {
   override def isSync: Boolean = true
 
   /** The core abstract method that must be implemented by each instance, providing the function behavior. */

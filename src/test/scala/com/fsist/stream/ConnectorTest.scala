@@ -198,7 +198,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val source = Source.of(1, 2, 3)
     val connector = source.roundRobin(2)
     for (output <- connector.outputs)
-      output.foreach(Func.nop)
+      output.foreach(Func.nopLiteral)
 
     val stream = source.builder.run()
 
@@ -209,7 +209,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val source = Source.of(1, 2, 3)
     val connector = source.scatter(2)
     for (output <- connector.outputs)
-      output.foreach(Func.nop)
+      output.foreach(Func.nopLiteral)
 
     val stream = source.builder.run()
 
@@ -221,7 +221,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     for (input <- merger.inputs)
       Source.of(1, 2, 3).to(input)
 
-    val stream = merger.output.foreach(Func.nop).build()
+    val stream = merger.output.foreach(Func.nopLiteral).build()
 
     stream(merger).completion.futureValue(Timeout(1.second))
   }

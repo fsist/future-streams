@@ -22,8 +22,8 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     val sourceOnError = new OnErrorRecorder
     val sinkOnError = new OnErrorRecorder
 
-    val source = Source.generate[Int](throw err, sourceOnError.onError)
-    val sink = Sink.foreach(Func.nop, onError = sinkOnError.onError)
+    val source = Source.generateFunc[Int](Func((u: Unit) => throw err), sourceOnError.onError)
+    val sink = Sink.foreachFunc(Func.nop, onError = sinkOnError.onError)
 
     val stream = source.to(sink).build()
 
@@ -46,8 +46,8 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     val sourceOnError = new OnErrorRecorder
     val sinkOnError = new OnErrorRecorder
 
-    val source = Source.generate[Int](1, sourceOnError.onError)
-    val sink = Sink.foreach((x: Int) => throw err, onError = sinkOnError.onError)
+    val source = Source.generateFunc[Int](1, sourceOnError.onError)
+    val sink = Sink.foreachFunc((x: Int) => throw err, onError = sinkOnError.onError)
 
     val stream = source.to(sink).build()
 
@@ -72,10 +72,10 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     val sinkOnError1 = new OnErrorRecorder
     val sinkOnError2 = new OnErrorRecorder
 
-    val source1 = Source.generate[Int](1, sourceOnError1.onError)
-    val source2 = Source.generate[Int](1, sourceOnError2.onError)
-    val sink1 = Sink.foreach(Func.nop, onError = sinkOnError1.onError)
-    val sink2 = Sink.foreach((x: Int) => throw err, onError = sinkOnError2.onError)
+    val source1 = Source.generateFunc[Int](1, sourceOnError1.onError)
+    val source2 = Source.generateFunc[Int](1, sourceOnError2.onError)
+    val sink1 = Sink.foreachFunc(Func.nop, onError = sinkOnError1.onError)
+    val sink2 = Sink.foreachFunc((x: Int) => throw err, onError = sinkOnError2.onError)
 
     val merger = Merger[Int](2)
     val splitter = Connector.tee[Int](2)
@@ -106,8 +106,8 @@ class StreamErorrHandlingTest extends FunSuite with StreamTester {
     val sourceOnError = new OnErrorRecorder
     val sinkOnError = new OnErrorRecorder
 
-    val source = Source.generate(1, sourceOnError.onError)
-    val sink = Sink.foreach(Func.nop, onError = sinkOnError.onError)
+    val source = Source.generateFunc(1, sourceOnError.onError)
+    val sink = Sink.foreachFunc(Func.nop, onError = sinkOnError.onError)
 
     val stream = source.to(sink).build()
 

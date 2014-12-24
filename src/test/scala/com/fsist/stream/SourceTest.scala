@@ -33,22 +33,22 @@ class SourceTest extends FunSuite with StreamTester {
 
   test("StreamInput completion promise is fulfilled") {
     val source = Source.of(1, 2, 3)
-    val stream = source.foreach(Func.nop).build()
+    val stream = source.discard().build()
     stream(source).completion.futureValue(Timeout(1.second))
   }
 
   test("from AsyncQueue") {
     val queue = new AsyncQueue[Option[Int]]
-    
+
     val result = Source.from(queue).collect[List].singleResult()
     awaitTimeout(result)(impatience)
-    
+
     queue.enqueue(Some(1))
     queue.enqueue(Some(2))
     awaitTimeout(result)(impatience)
-    
+
     queue.enqueue(None)
-    assert(result.futureValue == List(1,2))
+    assert(result.futureValue == List(1, 2))
   }
 
   test("from BoundedAsyncQueue") {
@@ -62,7 +62,7 @@ class SourceTest extends FunSuite with StreamTester {
     awaitTimeout(result)(impatience)
 
     queue.enqueue(None).futureValue
-    assert(result.futureValue == List(1,2))
+    assert(result.futureValue == List(1, 2))
   }
 
   test("Source.pusher") {
@@ -76,7 +76,7 @@ class SourceTest extends FunSuite with StreamTester {
     awaitTimeout(result)(impatience)
 
     pusher.complete()
-    assert(result.futureValue == List(1,2))
+    assert(result.futureValue == List(1, 2))
   }
 
   test("Source.asyncPusher") {
@@ -90,7 +90,7 @@ class SourceTest extends FunSuite with StreamTester {
     awaitTimeout(result)(impatience)
 
     pusher.complete().futureValue
-    assert(result.futureValue == List(1,2))
+    assert(result.futureValue == List(1, 2))
   }
 
   test("DelayedSource") {
@@ -128,5 +128,16 @@ class SourceTest extends FunSuite with StreamTester {
       val expected = Seq.fill(count)(data).flatten.sorted
       assert(result == expected, s"Concat $count sources")
     }
+  }
+
+  test("Source.concat multi layered") {
+    // This is a regression test
+
+    val data = 1 to 5
+    val source = Source.from(data).concatWith().concatWith()
+    val result = source.toList.singleResult().futureValue.sorted
+
+    val expected = data
+    assert(result == expected)
   }
 }

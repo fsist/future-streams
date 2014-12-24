@@ -183,7 +183,7 @@ object Source {
                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     generateFunc(SyncFunc(producer), SyncFunc(onError))
 
-  def generateAsync[Out](producer: Unit => Future[Out], onError: Throwable => Unit = Func.nopLiteral)
+  def generateAsync[Out](producer: => Future[Out], onError: Throwable => Unit = Func.nopLiteral)
                         (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
     generateFunc(AsyncFunc(producer), SyncFunc(onError))
 
@@ -203,20 +203,20 @@ object Source {
     */
   def from[Out](queue: AsyncQueue[Option[Out]])
                (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): StreamInput[Out] =
-    generateAsync[Out](Func(queue.dequeue() map {
+    generateAsync[Out](queue.dequeue() map {
       case Some(out) => out
       case None => throw new EndOfStreamException
-    }))
+    })
 
   /** Creates an input that produces the elements pushed into this queue. Pushing `None` signifies end of stream, after 
     * which no more elements will be dequeued.
     */
   def from[Out](queue: BoundedAsyncQueue[Option[Out]])
                (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): StreamInput[Out] =
-    generateAsync[Out](Func(queue.dequeue() map {
+    generateAsync[Out](queue.dequeue() map {
       case Some(out) => out
       case None => throw new EndOfStreamException
-    }))
+    })
 
   /** A way to push data into a running stream from the outside. Use with `Source.pusher`.
     *

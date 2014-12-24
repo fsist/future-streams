@@ -31,7 +31,7 @@ class SinkTest extends FunSuite with StreamTester {
   }
 
   test("StreamOutput completion promise is fulfilled") {
-    val sink = Sink.foreach[Int, Unit](Func.nop)
+    val sink = Sink.foreach[Int, Unit](Func.nopLiteral)
     val stream = Source.of(1, 2, 3).to(sink).build()
     stream(sink).completion.futureValue(Timeout(1.second))
   }

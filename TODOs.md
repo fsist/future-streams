@@ -20,8 +20,6 @@ TODOs:
 - Add general docs about families of methods to Sink, Transform, SourceOps, and mention them in the README
 - I really doubt if ALL my uses of @uncheckedVariance are legal
 - Note explicitly in README that methods should always declare to return a Pipe even when they use a single Transform to implement it.
-- Stop SyncFunc extending Function1; it inherits combinators such as .andThen which are confusing since they don't
-  create Funcs (unless we override them)
 - Add a note to the README about the push-through model
 - Document Pipe.flatten better in the README, including noting the point of asynchronicity on input
 - Add Source and Sink and StreamResult flatteners
