@@ -23,15 +23,15 @@ repositories {
 version = '0.7'
 
 dependencies {
-  compile 'org.scala-lang:scala-library:2.10.4'
-  compile 'org.scala-lang:scala-reflect:2.10.4'
-  compile 'org.scala-lang:scala-compiler:2.10.4'
+  compile 'org.scala-lang:scala-library:2.11.4'
+  compile 'org.scala-lang:scala-reflect:2.11.4'
+  compile 'org.scala-lang:scala-compiler:2.11.4'
 
-  compile 'com.typesafe:scalalogging-slf4j_2.10:1.0.1'
-  compile 'com.assembla.scala-incubator:graph-core_2.10:1.9.0'
+  compile 'com.typesafe.scala-logging:scala-logging_2.11:3.1.0'
+  compile 'com.assembla.scala-incubator:graph-core_2.11:1.9.0'
 
   testCompile 'ch.qos.logback:logback-classic:1.1.2'
-  testCompile 'org.scalatest:scalatest_2.10:2.2.1'
+  testCompile 'org.scalatest:scalatest_2.11:2.2.1'
   testCompile 'org.pegdown:pegdown:1.4.2'
 }
 

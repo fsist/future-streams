@@ -7,9 +7,9 @@
 
 package akka.http.util
 
-import scala.language.{ implicitConversions, higherKinds }
+import scala.language.{implicitConversions, higherKinds}
 import scala.util.control.NonFatal
-import scala.util.{ Failure, Success, Try }
+import scala.util.{Failure, Success, Try}
 import scala.collection.generic.CanBuildFrom
 import scala.concurrent.duration.Duration
 import scala.concurrent._
@@ -20,6 +20,7 @@ import scala.concurrent._
  * value is already present.
  */
 class FastFuture[A](val future: Future[A]) extends AnyVal {
+
   import FastFuture._
 
   def map[B](f: A ⇒ B)(implicit ec: ExecutionContext): Future[B] =
@@ -41,11 +42,13 @@ class FastFuture[A](val future: Future[A]) extends AnyVal {
   def transformWith[B](s: A ⇒ Future[B], f: Throwable ⇒ Future[B])(implicit executor: ExecutionContext): Future[B] = {
     def strictTransform[T](x: T, f: T ⇒ Future[B]) =
       try f(x)
-      catch { case NonFatal(e) ⇒ ErrorFuture(e) }
+      catch {
+        case NonFatal(e) ⇒ ErrorFuture(e)
+      }
 
     future match {
       case FulfilledFuture(a) ⇒ strictTransform(a, s)
-      case ErrorFuture(e)     ⇒ strictTransform(e, f)
+      case ErrorFuture(e) ⇒ strictTransform(e, f)
       case _ ⇒ future.value match {
         case None ⇒
           val p = Promise[B]()
@@ -72,22 +75,35 @@ object FastFuture {
     case Success(t) ⇒ FulfilledFuture(t)
     case Failure(e) ⇒ ErrorFuture(e)
   }
+
   private[this] val _successful: Any ⇒ Future[Any] = FulfilledFuture.apply
+
   def successful[T]: T ⇒ Future[T] = _successful.asInstanceOf[T ⇒ Future[T]]
+
   val failed: Throwable ⇒ Future[Nothing] = ErrorFuture.apply
 
   private case class FulfilledFuture[+A](a: A) extends Future[A] {
     def value = Some(Success(a))
-    def onComplete[U](f: Try[A] ⇒ U)(implicit executor: ExecutionContext) = f(Success(a)) //Future.successful(a).onComplete(f)
+
+    def onComplete[U](f: Try[A] ⇒ U)(implicit executor: ExecutionContext) = f(Success(a))
+
+    //Future.successful(a).onComplete(f)
     def isCompleted = true
+
     def result(atMost: Duration)(implicit permit: CanAwait) = a
+
     def ready(atMost: Duration)(implicit permit: CanAwait) = this
   }
+
   private case class ErrorFuture(error: Throwable) extends Future[Nothing] {
     def value = Some(Failure(error))
+
     def onComplete[U](f: Try[Nothing] ⇒ U)(implicit executor: ExecutionContext) = Future.failed(error).onComplete(f)
+
     def isCompleted = true
+
     def result(atMost: Duration)(implicit permit: CanAwait) = throw error
+
     def ready(atMost: Duration)(implicit permit: CanAwait) = this
   }
 

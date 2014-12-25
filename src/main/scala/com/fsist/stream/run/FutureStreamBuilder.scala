@@ -4,7 +4,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine._
-import com.typesafe.scalalogging.slf4j.Logging
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.tailrec
 import scala.concurrent.{Future, Promise, ExecutionContext}
@@ -39,7 +39,7 @@ import scala.language.implicitConversions
   * (e.g. any custom Func which is a closure over external mutable state), the behavior of the second and future streams
   * will be undefined.
   */
-class FutureStreamBuilder extends Logging {
+class FutureStreamBuilder extends LazyLogging {
 
   import FutureStreamBuilder._
 
@@ -127,7 +127,7 @@ class FutureStreamBuilder extends Logging {
     // Declare here, set later, and graphOps will access it later from its lazy val
     var stateMachinesVector: Vector[StateMachine] = Vector.empty
 
-    val graphOps = new GraphOps with Logging {
+    val graphOps = new GraphOps with LazyLogging {
       private lazy val stateMachines = stateMachinesVector
       private val failure = Promise[Throwable]()
 
@@ -269,6 +269,9 @@ class FutureStreamBuilder extends Logging {
 }
 
 object FutureStreamBuilder {
+  /** Implicitly creates a new Builder whenever one is needed */
+  implicit def makeNew: FutureStreamBuilder = new FutureStreamBuilder
+
   /** Type of the edges in the model graph. */
   private type ModelEdge = DiEdge[ComponentId]
 

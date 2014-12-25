@@ -1,12 +1,12 @@
 package com.fsist.util.concurrent
 
 import com.fsist.FutureTester
-import com.typesafe.scalalogging.slf4j.Logging
+import com.typesafe.scalalogging.LazyLogging
 import org.scalatest.FunSuite
 
 import scala.concurrent.ExecutionContext
 
-class AsyncQueueTest extends FunSuite with FutureTester with Logging {
+class AsyncQueueTest extends FunSuite with FutureTester with LazyLogging {
   implicit val ec = ExecutionContext.global
 
   test("Sanity") {

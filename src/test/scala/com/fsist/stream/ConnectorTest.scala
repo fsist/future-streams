@@ -114,7 +114,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val result = merger.output.toList().singleResult().futureValue
 
     val expected = Vector.fill(count)(range).flatten
-    assert(result.sorted == expected.sorted , "All elements were merged")
+    assert(result.sorted == expected.sorted, "All elements were merged")
   }
 
   test("scatter") {
@@ -165,7 +165,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     promises(1).success(())
     promises(2).success(())
 
-    assert(stream.completion.futureValue === (), "Entire stream should now complete")
+    stream.completion.futureValue // Entire stream should now complete
   }
 
   test("Scatter-gather") {

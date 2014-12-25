@@ -14,6 +14,7 @@ sealed trait SinkComponent[-In] extends StreamComponentBase {
 
 object SinkComponent {
   implicit def get[In](sink: Sink[In, _]): SinkComponent[In] = sink.sinkComponent
+
   implicit def get[In](pipe: Pipe[In, _]): SinkComponent[In] = pipe.sink
 }
 
@@ -120,7 +121,7 @@ final case class SimpleOutput[-In, +Res](builder: FutureStreamBuilder,
 
 object SimpleOutput {
   def apply[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res], onError: Func[Throwable, Unit])
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): SimpleOutput[In, Res] =
+                    (implicit builder: FutureStreamBuilder): SimpleOutput[In, Res] =
     apply(builder, onNext, onComplete, onError)
 }
 
@@ -150,20 +151,20 @@ object Sink {
   implicit def apply[In, Res](output: StreamOutput[In, Res]): Sink[In, Res] = Sink(output, output)
 
   def foreach[In, Res](onNext: In => Unit, onComplete: => Res = Func.nopLiteral, onError: Throwable => Unit = Func.nopLiteral)
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
+                      (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)
 
   def foreachAsync[In, Res](onNext: In => Future[Unit], onComplete: => Future[Res] = futureSuccess,
                             onError: Throwable => Unit = Func.nopLiteral)
-                           (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
+                           (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     SimpleOutput(builder, AsyncFunc(onNext), AsyncFunc(onComplete), onError)
 
   def foreachFunc[In, Res](onNext: Func[In, Unit], onComplete: Func[Unit, Res] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
-                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamOutput[In, Res] =
+                          (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     SimpleOutput(builder, onNext, onComplete, onError)
 
   /** A sink that discards its output and calculates nothing. */
-  def discard[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Unit] =
+  def discard[In]()(implicit builder: FutureStreamBuilder): StreamOutput[In, Unit] =
     SimpleOutput(builder, Func.nop, Func.pass, Func.nop)
 
   /** Extracts the single element of the input stream as the result.
@@ -171,7 +172,7 @@ object Sink {
     * If the stream is empty, fails with NoSuchElementException.
     * If the stream contains more than one element, fails with IllegalArgumentException.
     */
-  def single[In]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, In] = {
+  def single[In]()(implicit builder: FutureStreamBuilder): StreamOutput[In, In] = {
     def b = builder
     new SyncStreamConsumer[In, In] {
       override def builder: FutureStreamBuilder = b
@@ -189,7 +190,7 @@ object Sink {
 
   /** Creates a Sink that will wait for the `future` to complete and then feed data into the Sink it yields. */
   def flatten[In, Res](future: Future[Sink[In, Res]])
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamOutput[In, Res] =
+                      (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     DelayedSink(builder, future)
 }
 

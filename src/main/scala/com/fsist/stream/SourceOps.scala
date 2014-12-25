@@ -382,7 +382,7 @@ trait SourceOps[+Out] {
     *
     * This is named concatWith and not simply Concat because SourceOps.concat refers to the unrelated Transform.concat.
     *
-    * @see [[com.fsist.stream.Source.concat]] */
+    * @see [[com.fsist.stream.Source.concat]]*/
   def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
     Source.concat(sourceComponent +: sources)
 }

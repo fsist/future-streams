@@ -23,7 +23,7 @@ sealed trait ConnectorEdge[T] extends StreamComponentBase {
   * This type allows connecting Sources to a Connector, which is not itself a StreamComponent of any kind.
   */
 final case class ConnectorInput[T](connector: Connector[T], index: Int)
-                                          (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
+                                  (implicit val builder: FutureStreamBuilder)
   extends SinkComponentBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = true
@@ -34,7 +34,7 @@ final case class ConnectorInput[T](connector: Connector[T], index: Int)
   * This type allows connecting Sinks to a Connector, which is not itself a StreamComponent of any kind.
   */
 final case class ConnectorOutput[T](connector: Connector[T], index: Int)
-                                           (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder)
+                                   (implicit val builder: FutureStreamBuilder)
   extends SourceComponentBase[T] with ConnectorEdge[T] {
 
   override def isInput: Boolean = false
@@ -91,10 +91,11 @@ sealed trait Connector[T] {
   *                      If an empty BitSet is returned, the element is dropped.
   */
 final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
-                            (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
+                            (implicit val builder: FutureStreamBuilder) extends Connector[T] {
   require(outputCount > 0, "Must have at least one output")
 
   val inputs = Vector(ConnectorInput(this, 0))
+
   def input = inputs(0)
 
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
@@ -106,11 +107,13 @@ final case class Splitter[T](outputCount: Int, outputChooser: Func[T, BitSet])
   * are busy when an input element arrives, we wait for any output to become available.
   */
 final case class Scatterer[T](outputCount: Int)
-                             (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
+                             (implicit val builder: FutureStreamBuilder) extends Connector[T] {
   require(outputCount > 0, "Must have at least one output")
 
   val inputs = Vector(ConnectorInput(this, 0))
+
   def input = inputs(0)
+
   val outputs = for (index <- 0 until outputCount) yield ConnectorOutput(this, index)
 }
 
@@ -118,29 +121,30 @@ final case class Scatterer[T](outputCount: Int)
   * wait for an input if another input has data available.
   */
 final case class Merger[T](inputCount: Int)
-                          (implicit val builder: FutureStreamBuilder = new FutureStreamBuilder) extends Connector[T] {
+                          (implicit val builder: FutureStreamBuilder) extends Connector[T] {
   require(inputCount > 0, "Must have at least one input")
 
   val inputs = for (index <- 0 until inputCount) yield ConnectorInput(this, index)
   val outputs = Vector(ConnectorOutput(this, 0))
+
   def output = outputs(0)
 }
 
 object Connector {
-  /** @see [[com.fsist.stream.Splitter]] */
+  /** @see [[com.fsist.stream.Splitter]]*/
   def split[T](outputCount: Int, outputChooser: Func[T, BitSet])
-              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
+              (implicit builder: FutureStreamBuilder): Splitter[T] = Splitter(outputCount, outputChooser)
 
   /** Duplicates all input to several output streams. */
   def tee[T](outputCount: Int)
-            (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = {
+            (implicit builder: FutureStreamBuilder): Splitter[T] = {
     val fullBitset = BitSet(0 until outputCount: _*)
     Splitter(outputCount, (t: T) => fullBitset)
   }
 
   /** Distributes the input among outputs in a round-robin fashion. */
   def roundRobin[T](outputCount: Int)
-                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet] {
+                   (implicit builder: FutureStreamBuilder): Splitter[T] = Splitter(outputCount, new SyncFunc[T, BitSet] {
     private var next = 0
 
     override def apply(a: T): BitSet = {
@@ -151,14 +155,14 @@ object Connector {
     }
   })
 
-  /** @see [[com.fsist.stream.Merger]] */
+  /** @see [[com.fsist.stream.Merger]]*/
   def merge[T](inputCount: Int)
-              (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Merger[T] = Merger(inputCount)
+              (implicit builder: FutureStreamBuilder): Merger[T] = Merger(inputCount)
 
   /** Distributes the input among outputs in parallel, picking the first free output every time.
     * @see [[com.fsist.stream.Scatterer]]
     */
   def scatter[T](outputCount: Int)
-                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
+                (implicit builder: FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
 }
 

@@ -167,43 +167,43 @@ final case class Source[+Out](sourceComponent: SourceComponent[Out]) extends Sou
 object Source {
   implicit def make[Out](component: SourceComponent[Out]): Source[Out] = Source(component)
 
-  def of[Out](ts: Out*)(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+  def of[Out](ts: Out*)(implicit builder: FutureStreamBuilder): StreamInput[Out] =
     from(ts)
 
-  def from[Out](iter: Iterable[Out])(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+  def from[Out](iter: Iterable[Out])(implicit builder: FutureStreamBuilder): StreamInput[Out] =
     from(iter.iterator)
 
-  def from[Out](iter: Iterator[Out])(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+  def from[Out](iter: Iterator[Out])(implicit builder: FutureStreamBuilder): StreamInput[Out] =
     IteratorSource(builder, iter)
 
   def generateFunc[Out](producer: Func[Unit, Out], onError: Func[Throwable, Unit] = Func.nop)
-                       (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+                       (implicit builder: FutureStreamBuilder): StreamInput[Out] =
     GeneratorSource(builder, producer, onError)
 
   def generate[Out](producer: => Out, onError: Throwable => Unit = Func.nopLiteral)
-                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+                   (implicit builder: FutureStreamBuilder): StreamInput[Out] =
     generateFunc(SyncFunc(producer), SyncFunc(onError))
 
   def generateAsync[Out](producer: => Future[Out], onError: Throwable => Unit = Func.nopLiteral)
-                        (implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] =
+                        (implicit builder: FutureStreamBuilder): StreamInput[Out] =
     generateFunc(AsyncFunc(producer), SyncFunc(onError))
 
   /** Creates a Source that produces no elements. This is just an alias for `Source.of`. */
-  def empty[Out]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): StreamInput[Out] = of()
+  def empty[Out]()(implicit builder: FutureStreamBuilder): StreamInput[Out] = of()
 
   /** Creates a Source that will produce elements from the Source eventually yielded by the `future`.
     *
     * Until `future` completes, this source does nothing.
     */
   def flatten[Out](future: Future[Source[Out]])
-                  (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): StreamInput[Out] =
+                  (implicit builder: FutureStreamBuilder): StreamInput[Out] =
     DelayedSource(builder, future)
 
   /** Creates an input that produces the elements pushed into this queue. Pushing `None` signifies end of stream, after 
     * which no more elements will be dequeued.
     */
   def from[Out](queue: AsyncQueue[Option[Out]])
-               (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): StreamInput[Out] =
+               (implicit b: FutureStreamBuilder, ec: ExecutionContext): StreamInput[Out] =
     generateAsync[Out](queue.dequeue() map {
       case Some(out) => out
       case None => throw new EndOfStreamException
@@ -213,7 +213,7 @@ object Source {
     * which no more elements will be dequeued.
     */
   def from[Out](queue: BoundedAsyncQueue[Option[Out]])
-               (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): StreamInput[Out] =
+               (implicit b: FutureStreamBuilder, ec: ExecutionContext): StreamInput[Out] =
     generateAsync[Out](queue.dequeue() map {
       case Some(out) => out
       case None => throw new EndOfStreamException
@@ -239,7 +239,7 @@ object Source {
     * NOTE: if you start pushing elements before the stream begins running, they are queued and will be consumed
     * when the stream runs.
     */
-  def pusher[Out]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder()): Pusher[Out] with StreamInput[Out] =
+  def pusher[Out]()(implicit b: FutureStreamBuilder): Pusher[Out] with StreamInput[Out] =
     new Pusher[Out](new AsyncQueue[Option[Out]]) with AsyncStreamProducer[Out] {
       override def builder: FutureStreamBuilder = b
 
@@ -273,7 +273,7 @@ object Source {
     * when the stream runs.
     */
   def asyncPusher[Out](queueSize: Int = 1)
-                      (implicit b: FutureStreamBuilder = new FutureStreamBuilder(), ec: ExecutionContext): AsyncPusher[Out] with StreamInput[Out] = {
+                      (implicit b: FutureStreamBuilder, ec: ExecutionContext): AsyncPusher[Out] with StreamInput[Out] = {
     new AsyncPusher[Out](new BoundedAsyncQueue[Option[Out]](queueSize)) with AsyncStreamProducer[Out] {
       override def builder: FutureStreamBuilder = b
 

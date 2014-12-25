@@ -106,7 +106,7 @@ final case class SingleTransform[-In, +Out](builder: FutureStreamBuilder, onNext
 object SingleTransform {
   def apply[In, Out](onNext: Func[In, Out],
                      onComplete: Func[Unit, Unit] = Func.nop, onError: Func[Throwable, Unit] = Func.nop)
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): SingleTransform[In, Out] =
+                    (implicit builder: FutureStreamBuilder): SingleTransform[In, Out] =
     apply(builder, onNext, onComplete, onError)
 }
 
@@ -117,7 +117,7 @@ final case class MultiTransform[-In, +Out](builder: FutureStreamBuilder, onNext:
 object MultiTransform {
   def apply[In, Out](onNext: Func[In, Iterable[Out]],
                      onComplete: Func[Unit, Iterable[Out]] = emptyIterable, onError: Func[Throwable, Unit] = Func.nop)
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): MultiTransform[In, Out] =
+                    (implicit builder: FutureStreamBuilder): MultiTransform[In, Out] =
     apply(builder, onNext, onComplete, onError)
 }
 
@@ -133,26 +133,26 @@ final case class DelayedPipe[-In, +Out](builder: FutureStreamBuilder, future: Fu
 
 object DelayedPipe {
   def apply[In, Out](future: Future[Pipe[In, Out]])
-                    (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedPipe[In, Out] =
+                    (implicit builder: FutureStreamBuilder): DelayedPipe[In, Out] =
     apply(builder, future)
 }
 
 object Transform {
   /** A transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
-  def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = NopTransform[T](builder)
+  def nop[T]()(implicit builder: FutureStreamBuilder): Transform[T, T] = NopTransform[T](builder)
 
   def map[In, Out](mapper: Func[In, Out])
-                  (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
+                  (implicit builder: FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, Func.nop, Func.nop)
 
   // This is a separate overload instead of an onComplete optional argument to make inference better
 
   def map[In, Out](mapper: Func[In, Out], onComplete: Func[Unit, Unit])
-                  (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
+                  (implicit builder: FutureStreamBuilder): Transform[In, Out] =
     SingleTransform(builder, mapper, onComplete, Func.nop)
 
   def flatMap[In, Out](mapper: Func[In, Iterable[Out]], onComplete: Func[Unit, Iterable[Out]] = Func(emptyIterable))
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Out] =
+                      (implicit builder: FutureStreamBuilder): Transform[In, Out] =
     MultiTransform(builder, mapper, onComplete, Func.nop)
 
   /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe.
@@ -160,11 +160,11 @@ object Transform {
     * Do not confuse with `flatten`, which transforms a stream of Iterable[T] to a stream of T.
     */
   def flattenPipe[In, Out](future: Future[Pipe[In, Out]])
-                          (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): DelayedPipe[In, Out] =
+                          (implicit builder: FutureStreamBuilder): DelayedPipe[In, Out] =
     DelayedPipe(builder, future)
 
   def filter[In](filter: Func[In, Boolean])
-                (implicit builder: FutureStreamBuilder = new FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {
+                (implicit builder: FutureStreamBuilder, ec: ExecutionContext): Transform[In, In] = {
 
     val func: Func[In, List[In]] = filter match {
       case syncf: SyncFunc[In, Boolean] =>
@@ -183,7 +183,7 @@ object Transform {
   }
 
   def fold[In, Res](init: Res)(onNext: Func[(Res, In), Res])
-                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, Res] = {
+                   (implicit builder: FutureStreamBuilder): Transform[In, Res] = {
 
     var state = init
     val func: Func[In, Iterable[Res]] = onNext match {
@@ -208,7 +208,7 @@ object Transform {
   /** WARNING: this implementation discards all input after `count` elements have been taken, but it doesn't prevent
     * the upstream component from producing them, which may be expensive. */
   def take[T](count: Long)
-             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
+             (implicit builder: FutureStreamBuilder): Transform[T, T] = {
     var counter: Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
@@ -226,7 +226,7 @@ object Transform {
   }
 
   def drop[T](count: Long)
-             (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[T, T] = {
+             (implicit builder: FutureStreamBuilder): Transform[T, T] = {
     var counter: Long = count
 
     val onNext = new SyncFunc[T, Seq[T]] {
@@ -244,7 +244,7 @@ object Transform {
   }
 
   /** Transforms a stream of iterable sequences into a stream of their elements. */
-  def flatten[Elem, M[Elem] <: Iterable[Elem]]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[M[Elem], Elem] =
+  def flatten[Elem, M[Elem] <: Iterable[Elem]]()(implicit builder: FutureStreamBuilder): Transform[M[Elem], Elem] =
     flatMap[M[Elem], Elem](Func.pass)
 
   /** Transforms a stream of sequences by emitting sequences containing no more than `count` elements.
@@ -257,7 +257,7 @@ object Transform {
   def takeElements[Elem, Coll](count: Long)
                               (implicit ev: Coll <:< Traversable[Elem],
                                cbf: CanBuildFrom[Nothing, Elem, Coll],
-                               builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
+                               builder: FutureStreamBuilder): Transform[Coll, Coll] = {
     var remaining: Long = count
     flatMap[Coll, Coll]((input: Coll) => {
       if (remaining <= 0) List.empty
@@ -288,7 +288,7 @@ object Transform {
   def dropElements[Elem, Coll](count: Long)
                               (implicit ev: Coll <:< Traversable[Elem],
                                cbf: CanBuildFrom[Nothing, Elem, Coll],
-                               builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
+                               builder: FutureStreamBuilder): Transform[Coll, Coll] = {
     var remaining: Long = count
     flatMap[Coll, Coll]((input: Coll) => {
       if (remaining <= 0) List(input)
@@ -310,7 +310,7 @@ object Transform {
 
   /** Collects all input elements in a collection of type `M` and emits it when the stream completes. */
   def collect[In, M[_]]()(implicit cbf: CanBuildFrom[Nothing, In, M[In]],
-                          builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[In, M[In]] = {
+                          builder: FutureStreamBuilder): Transform[In, M[In]] = {
     def b = builder
     new SyncMultiTransform[In, M[In]] {
       override def builder: FutureStreamBuilder = b
@@ -338,7 +338,7 @@ object Transform {
     */
   def concat[Elem, Coll]()(implicit ev: Coll <:< TraversableOnce[Elem],
                            cbf: CanBuildFrom[Nothing, Elem, Coll],
-                           builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Coll, Coll] = {
+                           builder: FutureStreamBuilder): Transform[Coll, Coll] = {
     def b = builder
     new SyncMultiTransform[Coll, Coll] {
       override def builder: FutureStreamBuilder = b
@@ -401,7 +401,7 @@ object Transform {
   }
 
   /** A pass-through transform that exposes the first element passed via a Future. */
-  def tapHead[Elem]()(implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] with Aside[Option[Elem]] =
+  def tapHead[Elem]()(implicit b: FutureStreamBuilder): Transform[Elem, Elem] with Aside[Option[Elem]] =
     new SyncSingleTransform[Elem, Elem] with Aside[Option[Elem]] {
       override def builder: FutureStreamBuilder = b
 
@@ -419,7 +419,7 @@ object Transform {
 
   /** Append the given elements to those in the stream. */
   def append[Elem](elems: Iterable[Elem])
-                  (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+                  (implicit b: FutureStreamBuilder): Transform[Elem, Elem] =
     flatMap[Elem, Elem](
       (e: Elem) => Seq(e),
       elems
@@ -427,7 +427,7 @@ object Transform {
 
   /** Prepend the given elements to those in the stream. */
   def prepend[Elem](elems: Iterable[Elem])
-                   (implicit b: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] = new SyncMultiTransform[Elem, Elem] {
+                   (implicit b: FutureStreamBuilder): Transform[Elem, Elem] = new SyncMultiTransform[Elem, Elem] {
     private var emitted = false
 
     override def onNext(in: Elem): Iterable[Elem] = {
@@ -443,13 +443,13 @@ object Transform {
 
   /** A stream component that reacts to stream errors and otherwise passes on the stream elements unchanged. */
   def onError[Elem](onError: Func[Throwable, Unit])
-                   (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+                   (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] =
     SingleTransform(builder, Func.pass, Func.nop, onError)
 
   /** A stream component that does something side-effecting when the stream completes,
     * and otherwise passes on the stream elements unchanged. */
   def onComplete[Elem](onComplete: Func[Unit, Unit])
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Transform[Elem, Elem] =
+                      (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] =
     SingleTransform(builder, Func.pass, onComplete, Func.nop)
 }
 

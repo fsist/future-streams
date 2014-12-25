@@ -6,10 +6,10 @@ import scala.language.implicitConversions
 
 /** An actual stream (or general graph). Once an instance exists, it is already running. */
 class RunningStream(val builder: FutureStreamBuilder,
-                   val components: Map[ComponentId, RunningStreamComponent],
-                   val connectors: Map[ConnectorId[_], RunningConnector[_]],
-                   graphOps: GraphOps)
-                  (implicit ec: ExecutionContext) {
+                    val components: Map[ComponentId, RunningStreamComponent],
+                    val connectors: Map[ConnectorId[_], RunningConnector[_]],
+                    graphOps: GraphOps)
+                   (implicit ec: ExecutionContext) {
 
   /** Completes when all stream components have completed (as exposed by their `completion` future).
     *
@@ -72,7 +72,7 @@ case class ComponentId(value: StreamComponent) {
 }
 
 object ComponentId {
-  implicit def make(value: StreamComponent) : ComponentId = ComponentId(value)
+  implicit def make(value: StreamComponent): ComponentId = ComponentId(value)
 }
 
 /** Wraps each Connector when used as a key in a Set or Map.
@@ -87,6 +87,6 @@ case class ConnectorId[T](value: Connector[T]) {
 }
 
 object ConnectorId {
-  implicit def make[T](value: Connector[T]) : ConnectorId[T] = ConnectorId(value)
+  implicit def make[T](value: Connector[T]): ConnectorId[T] = ConnectorId(value)
 }
 

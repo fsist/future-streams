@@ -3,7 +3,7 @@ package com.fsist.util.concurrent
 import java.util.concurrent.atomic.AtomicReference
 
 import akka.http.util.FastFuture
-import com.typesafe.scalalogging.slf4j.Logging
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.tailrec
 import scala.collection.immutable.Queue
@@ -30,7 +30,7 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
   *
   * @tparam T the queue element type
   */
-class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]](Right(Queue())) with Logging {
+class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]](Right(Queue())) with LazyLogging {
 
   /** Enqueue an item synchronously. */
   @tailrec final def enqueue(t: T): Unit = get match {
@@ -90,7 +90,7 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
 }
 
 /** A queue where both insertion and removal are asynchronous, based on a maximum queue size. */
-class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) extends Logging {
+class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) extends LazyLogging {
   require(queueSize >= 1)
 
   // The null check is because of bugs that happened in several places in a similar way, where we tried passing an
@@ -116,7 +116,7 @@ class BoundedAsyncQueue[T](val queueSize: Int)(implicit ec: ExecutionContext) ex
     */
   def tryDequeue(): Option[T] = {
     queue.tryDequeue() match {
-      case s @ Some(t) =>
+      case s@Some(t) =>
         acks.enqueue(())
         s
       case None => None

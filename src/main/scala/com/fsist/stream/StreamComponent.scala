@@ -15,7 +15,7 @@ sealed trait StreamComponent {
   implicit def builder: FutureStreamBuilder
 
   require(builder eq builder, "`builder` method returns different values on successive calls. " +
-    "You probably wrote `override def builder = new FutureStreamBuilder` where you meant `override val builder...`")
+    "You probably wrote `override def builder ` where you meant `override val builder...`")
 
   // Register on creation
   builder.register(this)
@@ -35,7 +35,8 @@ private[stream] trait StreamComponentBase extends StreamComponent
 /** A mixin for trait-based stream component implementations that provides a new builder in a succint way.
   * You can still override it to plug in your own builder.
   */
-trait NewBuilder { self: StreamComponent =>
+trait NewBuilder {
+  self: StreamComponent =>
   private[this] lazy val myBuilder = new FutureStreamBuilder
 
   // Don't use a val, because then overriding this with a def becomes impossible, and overriding with another val

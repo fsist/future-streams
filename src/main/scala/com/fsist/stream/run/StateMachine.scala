@@ -1,13 +1,12 @@
 package com.fsist.stream.run
 
-import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicInteger
 
 import akka.http.util.FastFuture
 import com.fsist.stream._
 import com.fsist.util.concurrent._
 import com.fsist.util.concurrent.FutureOps._
-import com.typesafe.scalalogging.slf4j.Logging
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.tailrec
 import scala.collection.immutable.BitSet
@@ -29,7 +28,7 @@ import scala.util.control.NonFatal
 /** A simplified StreamConsumer, without onError and without a Result. Exposed by each state machine with an input. */
 private[run] case class Consumer[-In](onNext: Func[In, Unit], onComplete: Func[Unit, Unit])
 
-private[run] sealed trait StateMachine extends Logging {
+private[run] sealed trait StateMachine extends LazyLogging {
   implicit def ec: ExecutionContext
 
   def running: RunningStreamComponent
@@ -114,7 +113,7 @@ private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachin
   val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to connector.outputs.size) map (_ => None): _*)
 }
 
-private[run] object StateMachine extends Logging {
+private[run] object StateMachine extends LazyLogging {
 
   class ProducerMachine[Out](val input: StreamProducer[Out], val graph: GraphOps)
                             (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {

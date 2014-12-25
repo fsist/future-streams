@@ -1,6 +1,6 @@
 package com.fsist
 
-import com.typesafe.scalalogging.slf4j.Logging
+import com.typesafe.scalalogging.LazyLogging
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
 import org.scalatest.concurrent._
 import org.scalatest.exceptions.{TestFailedDueToTimeoutException, TestFailedException}
@@ -13,9 +13,10 @@ import scala.language.implicitConversions
 import scala.reflect.ClassTag
 
 /** Convenience methods for tests using Futures */
-trait FutureTester extends Futures with ScalaFutures with Assertions with Matchers with Eventually with Logging {
-  implicit def spanToDuration(span: Span) : FiniteDuration = span.totalNanos.nanos
-  implicit def durationToSpan(duration: FiniteDuration) : Span = Span(duration.toNanos, Nanoseconds)
+trait FutureTester extends Futures with ScalaFutures with Assertions with Matchers with Eventually with LazyLogging {
+  implicit def spanToDuration(span: Span): FiniteDuration = span.totalNanos.nanos
+
+  implicit def durationToSpan(duration: FiniteDuration): Span = Span(duration.toNanos, Nanoseconds)
 
   /** The correct way to wait for a future to fail with a specific exception type.
     *
@@ -37,11 +38,11 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
     }
     catch {
       case e: E if exceptionExpectation.isDefined =>
-        assert(exceptionExpectation.get(e),clue + s"(exception type is right but content is not as expected: $e)")
+        assert(exceptionExpectation.get(e), clue + s"(exception type is right but content is not as expected: $e)")
       case e: E => return //Success
       case failed: TestFailedException => failed.cause match {
         case Some(cause: E) if exceptionExpectation.isDefined =>
-          assert(exceptionExpectation.get(cause),clue + s"(exception type is right but content is not as expected: $cause)")
+          assert(exceptionExpectation.get(cause), clue + s"(exception type is right but content is not as expected: $cause)")
         case Some(cause: E) => return // Success
         case _ => throw failed
       }
@@ -51,7 +52,7 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
   /** An awaitFailure overload with exception expectations and no textual clue
     */
   def awaitFailure[E <: Throwable](fut: FutureConcept[_], exceptionExpectation: Option[E => Boolean])(implicit patience: PatienceConfig, mf: Manifest[E]): Unit =
-    awaitFailure[E](fut,"",exceptionExpectation)(patience,mf)
+    awaitFailure[E](fut, "", exceptionExpectation)(patience, mf)
 
 
   /** Await a timeout of this future. Fails (throws a TestFailedException) if the future completes instead of timing out. */
@@ -63,14 +64,14 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
     catch {
       // These are timeouts
       case e: TestFailedDueToTimeoutException => ()
-        // Commented out types belong to Akka Actors
-//      case e: AskTimeoutException => ()
+      // Commented out types belong to Akka Actors
+      //      case e: AskTimeoutException => ()
       case e: TestFailedException
         if e.message.isDefined && e.message.get.contains("A timeout occurred waiting for a future to complete") => ()
-//      case e: TestFailedException if e.cause.isDefined && e.cause.get.isInstanceOf[AskTimeoutException] => ()
+      //      case e: TestFailedException if e.cause.isDefined && e.cause.get.isInstanceOf[AskTimeoutException] => ()
 
       // This is not a timeout
-//      case NonFatal(e) => throw e
+      //      case NonFatal(e) => throw e
     }
   }
 
@@ -94,8 +95,8 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
       case e if tag.runtimeClass.isInstance(e) => ()
 
       // This is not a timeout
-//      case NonFatal(e) =>
-//        throw e
+      //      case NonFatal(e) =>
+      //        throw e
     }
   }
 

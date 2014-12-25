@@ -10,7 +10,7 @@ class PipeTest extends FunSuite with StreamTester {
     val data = 1 to 10
     val source = Source.from(data)
 
-    val pipe : Pipe[Int, Int] = Transform.map((i: Int) => i + 1)
+    val pipe: Pipe[Int, Int] = Transform.map((i: Int) => i + 1)
 
     val result = source.to(pipe).collect[List].singleResult().futureValue
     val expected = data.map(_ + 1)

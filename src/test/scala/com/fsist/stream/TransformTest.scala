@@ -158,7 +158,7 @@ class TransformTest extends FunSuite with StreamTester {
 
   test("tapHead aside completes once an element has passed it") {
     var emittedFirst = false
-    val source = Source.generateAsync{
+    val source = Source.generateAsync {
       if (emittedFirst) Promise[Int]().future
       else {
         emittedFirst = true

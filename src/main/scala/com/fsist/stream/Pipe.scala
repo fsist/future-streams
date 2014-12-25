@@ -49,10 +49,10 @@ object Pipe {
     apply(transform, transform)
 
   /** A pipe containing a transformation that does nothing. When this is present in a stream, the materialization phase eliminates it. */
-  def nop[T]()(implicit builder: FutureStreamBuilder = new FutureStreamBuilder()): Pipe[T, T] = Pipe(Transform.nop[T]()(builder))
+  def nop[T]()(implicit builder: FutureStreamBuilder): Pipe[T, T] = Pipe(Transform.nop[T]()(builder))
 
   /** The stream will wait for `future` to be completed, and then will materialize and run the provided Pipe. */
-  def flatten[In, Out](future:  Future[Pipe[In, Out]])
-                      (implicit builder: FutureStreamBuilder = new FutureStreamBuilder): Pipe[In, Out] =
+  def flatten[In, Out](future: Future[Pipe[In, Out]])
+                      (implicit builder: FutureStreamBuilder): Pipe[In, Out] =
     Pipe(DelayedPipe(builder, future))
 }
