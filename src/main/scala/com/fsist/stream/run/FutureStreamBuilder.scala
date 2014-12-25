@@ -4,15 +4,15 @@ import java.util.concurrent.atomic.AtomicReference
 
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine._
-import com.fsist.util.concurrent.SyncFunc
 import com.typesafe.scalalogging.slf4j.Logging
 
 import scala.annotation.tailrec
-import scala.collection.immutable.VectorBuilder
 import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.control.NonFatal
 import scalax.collection.GraphEdge.DiEdge
 import scalax.collection.immutable.Graph
+
+import scala.language.implicitConversions
 
 /** Builds the mutable state describing the stream graph being built, and allows building it into a runnable [[RunningStream]].
   *
@@ -84,7 +84,7 @@ class FutureStreamBuilder extends Logging {
       case other => other
     }
 
-    alterState(_.mapGraph(_ + DiEdge[StreamComponent](trueSource, trueSink)))
+    alterState(_.mapGraph(_ + DiEdge[Node](trueSource, trueSink)))
     if (trueSource.builder ne this) link(trueSource.builder)
     if (trueSink.builder ne this) link(trueSink.builder)
   }
@@ -108,7 +108,7 @@ class FutureStreamBuilder extends Logging {
   private def removeNopNodes(graph: ModelGraph) : ModelGraph = {
     var newGraph = graph
 
-    for (node <- graph.nodes if node.value.isInstanceOf[NopTransform[_]];
+    for (node <- graph.nodes if node.value.value.isInstanceOf[NopTransform[_]];
          pred <- node.diPredecessors;
          succ <- node.diSuccessors) {
       newGraph = newGraph + DiEdge(pred.value, succ.value) - DiEdge(pred.value, node.value) - DiEdge(node.value, succ.value) - node
@@ -144,7 +144,7 @@ class FutureStreamBuilder extends Logging {
     }
 
     val allConnectors: Set[Connector[_]] =
-      model.nodes.toOuter.filter(_.isInstanceOf[ConnectorEdge[_]]).map(_.asInstanceOf[ConnectorEdge[_]].connector).toSet
+      model.nodes.toOuter.map(_.value).filter(_.isInstanceOf[ConnectorEdge[_]]).map(_.asInstanceOf[ConnectorEdge[_]].connector).toSet
 
     // Create the StateMachine instances
 
@@ -157,7 +157,7 @@ class FutureStreamBuilder extends Logging {
 
     // All component types other than connectors
     val componentMachines: Map[StreamComponent, StateMachine] =
-      (for (node <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
+      (for (Node(node) <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
         node match {
           case input: StreamProducer[_] => (input: StreamComponent, new ProducerMachine(input, graphOps))
           case input: DelayedSource[_] => (input: StreamComponent, new DelayedSourceMachine(input, graphOps))
@@ -190,7 +190,7 @@ class FutureStreamBuilder extends Logging {
 
     // Connect the state machines to one another
 
-    for (DiEdge(from: SourceComponent[_], to: SinkComponent[_]) <- model.edges.toOuter) {
+    for (DiEdge(Node(from: SourceComponent[_]), Node(to: SinkComponent[_])) <- model.edges.toOuter) {
       from match {
         // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
         case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
@@ -243,7 +243,7 @@ class FutureStreamBuilder extends Logging {
     }
 
     model.degreeNodeSeq(model.OutDegree).map {
-      case (degree, innerNode) => (degree, innerNode.value)
+      case (degree, innerNode) => (degree, innerNode.value.value)
     }.foreach {
       _ match {
         case (1, node) => require(!node.isInstanceOf[StreamOutput[_, _]], s"Node $node is a StreamOutput and cannot be connected to another Sink")
@@ -254,7 +254,7 @@ class FutureStreamBuilder extends Logging {
     }
 
     model.degreeNodeSeq(model.InDegree).map {
-      case (degree, innerNode) => (degree, innerNode.value)
+      case (degree, innerNode) => (degree, innerNode.value.value)
     }.foreach {
       _ match {
         case (1, node) => require(!node.isInstanceOf[StreamInput[_]], s"Node $node is a StreamInput and cannot be connected to another Source")
@@ -268,11 +268,26 @@ class FutureStreamBuilder extends Logging {
 }
 
 object FutureStreamBuilder {
+
+  /** Wraps each stream component for placement in the graph, and makes sure to compare nodes by identity.
+    * Otherwise StreamComponent case classes that compare equal (e.g. two Merger(3) nodes) would be confused.
+    */
+  private case class Node(value: StreamComponent) {
+    override def equals(other: Any): Boolean =
+      (other != null) && other.isInstanceOf[Node] && (value eq other.asInstanceOf[Node].value)
+
+    override def hashCode(): Int = System.identityHashCode(value)
+  }
+
+  private object Node {
+    implicit def make(value: StreamComponent): Node = Node(value)
+  }
+
   /** Type of the edges in the model graph. */
-  private type ModelEdge = DiEdge[StreamComponent]
+  private type ModelEdge = DiEdge[Node]
 
   /** Type of the model graph (as opposed to the built, runnable graph). */
-  private type ModelGraph = Graph[StreamComponent, DiEdge]
+  private type ModelGraph = Graph[Node, DiEdge]
 
   /** Complete state of FutureStreamBuilder before `build` is called, describing the model graph. */
   private case class State(graph: ModelGraph = Graph.empty, linked: Set[FutureStreamBuilder] = Set.empty) {
@@ -282,5 +297,4 @@ object FutureStreamBuilder {
 
     def merge(other: State): State = State(graph ++ other.graph, linked ++ other.linked)
   }
-
 }
