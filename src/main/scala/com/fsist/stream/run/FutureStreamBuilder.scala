@@ -84,7 +84,7 @@ class FutureStreamBuilder extends Logging {
       case other => other
     }
 
-    alterState(_.mapGraph(_ + DiEdge[Node](trueSource, trueSink)))
+    alterState(_.mapGraph(_ + DiEdge[ComponentId](trueSource, trueSink)))
     if (trueSource.builder ne this) link(trueSource.builder)
     if (trueSink.builder ne this) link(trueSink.builder)
   }
@@ -105,7 +105,7 @@ class FutureStreamBuilder extends Logging {
     }
 
   /** Removes Transform.nop nodes from the graph, connecting their inputs and outputs directly. */
-  private def removeNopNodes(graph: ModelGraph) : ModelGraph = {
+  private def removeNopNodes(graph: ModelGraph): ModelGraph = {
     var newGraph = graph
 
     for (node <- graph.nodes if node.value.value.isInstanceOf[NopTransform[_]];
@@ -125,7 +125,7 @@ class FutureStreamBuilder extends Logging {
     val model = removeNopNodes(st.graph)
 
     // Declare here, set later, and graphOps will access it later from its lazy val
-    var stateMachinesVector : Vector[StateMachine] = Vector.empty
+    var stateMachinesVector: Vector[StateMachine] = Vector.empty
 
     val graphOps = new GraphOps with Logging {
       private lazy val stateMachines = stateMachinesVector
@@ -143,37 +143,38 @@ class FutureStreamBuilder extends Logging {
       }
     }
 
-    val allConnectors: Set[Connector[_]] =
-      model.nodes.toOuter.map(_.value).filter(_.isInstanceOf[ConnectorEdge[_]]).map(_.asInstanceOf[ConnectorEdge[_]].connector).toSet
+    val allConnectors: Set[ConnectorId[_]] =
+      (for (ComponentId(component) <- model.nodes.toOuter if component.isInstanceOf[ConnectorEdge[_]])
+      yield ConnectorId(component.asInstanceOf[ConnectorEdge[_]].connector)).toSet
 
     // Create the StateMachine instances
 
-    val connectorMachines: Map[Connector[_], ConnectorMachine[_]] =
+    val connectorMachines: Map[ConnectorId[_], ConnectorMachine[_]] =
       allConnectors.map({
-        case merger: Merger[_] => (merger, new MergerMachine(merger, graphOps))
-        case splitter: Splitter[_] => (splitter, new SplitterMachine(splitter, graphOps))
-        case scatterer: Scatterer[_] => (scatterer, new ScattererMachine(scatterer, graphOps))
+        case node@ConnectorId(merger: Merger[_]) => (node, new MergerMachine(merger, graphOps))
+        case node@ConnectorId(splitter: Splitter[_]) => (node, new SplitterMachine(splitter, graphOps))
+        case node@ConnectorId(scatterer: Scatterer[_]) => (node, new ScattererMachine(scatterer, graphOps))
       }).toMap
 
     // All component types other than connectors
-    val componentMachines: Map[StreamComponent, StateMachine] =
-      (for (Node(node) <- model.nodes.toOuter if !node.isInstanceOf[ConnectorEdge[_]]) yield {
-        node match {
-          case input: StreamProducer[_] => (input: StreamComponent, new ProducerMachine(input, graphOps))
-          case input: DelayedSource[_] => (input: StreamComponent, new DelayedSourceMachine(input, graphOps))
-          case output: StreamConsumer[_, _] => (output: StreamComponent, new ConsumerMachine(output, graphOps))
-          case output: DelayedSink[_, _] => (output: StreamComponent, new DelayedSinkMachine(output, graphOps))
-          case transform: Transform[_, _] => (transform: StreamComponent, new TransformMachine(transform, graphOps))
+    val componentMachines: Map[ComponentId, StateMachine] =
+      (for (node@ComponentId(component) <- model.nodes.toOuter if !component.isInstanceOf[ConnectorEdge[_]]) yield {
+        component match {
+          case input: StreamProducer[_] => (node, new ProducerMachine(input, graphOps))
+          case input: DelayedSource[_] => (node, new DelayedSourceMachine(input, graphOps))
+          case output: StreamConsumer[_, _] => (node, new ConsumerMachine(output, graphOps))
+          case output: DelayedSink[_, _] => (node, new DelayedSinkMachine(output, graphOps))
+          case transform: Transform[_, _] => (node, new TransformMachine(transform, graphOps))
           case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }
       }).toMap
 
     // All machines including connectors
     val allMachines = componentMachines ++ {
-      val builder = Map.newBuilder[StreamComponent, StateMachine]
+      val builder = Map.newBuilder[ComponentId, StateMachine]
       // Try to write it using connectorMachines.flatMap - you'll get some delicious type errors
       connectorMachines.foreach {
-        case (k, v) => k.edges.foreach {
+        case (k, v) => k.value.edges.foreach {
           case e => builder += ((e, v))
         }
       }
@@ -183,14 +184,14 @@ class FutureStreamBuilder extends Logging {
     stateMachinesVector = allMachines.values.toVector
 
     // Only the sink-like machines
-    val sinkMachines: Map[StreamComponent, StateMachineWithInput[_]] =
+    val sinkMachines: Map[ComponentId, StateMachineWithInput[_]] =
       allMachines.filter {
         case (component, machine) => machine.isInstanceOf[StateMachineWithInput[_]]
       }.mapValues(_.asInstanceOf[StateMachineWithInput[_]])
 
     // Connect the state machines to one another
 
-    for (DiEdge(Node(from: SourceComponent[_]), Node(to: SinkComponent[_])) <- model.edges.toOuter) {
+    for (DiEdge(ComponentId(from: SourceComponent[_]), ComponentId(to: SinkComponent[_])) <- model.edges.toOuter) {
       from match {
         // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
         case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
@@ -234,7 +235,7 @@ class FutureStreamBuilder extends Logging {
     require(model.isAcyclic, "Cycles are not yet supported")
 
     for (node <- model.nodes.toOuter) {
-      require (! node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
+      require(!node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
     }
 
     for (DiEdge(from, to) <- model.edges.toOuter) {
@@ -268,26 +269,11 @@ class FutureStreamBuilder extends Logging {
 }
 
 object FutureStreamBuilder {
-
-  /** Wraps each stream component for placement in the graph, and makes sure to compare nodes by identity.
-    * Otherwise StreamComponent case classes that compare equal (e.g. two Merger(3) nodes) would be confused.
-    */
-  private case class Node(value: StreamComponent) {
-    override def equals(other: Any): Boolean =
-      (other != null) && other.isInstanceOf[Node] && (value eq other.asInstanceOf[Node].value)
-
-    override def hashCode(): Int = System.identityHashCode(value)
-  }
-
-  private object Node {
-    implicit def make(value: StreamComponent): Node = Node(value)
-  }
-
   /** Type of the edges in the model graph. */
-  private type ModelEdge = DiEdge[Node]
+  private type ModelEdge = DiEdge[ComponentId]
 
   /** Type of the model graph (as opposed to the built, runnable graph). */
-  private type ModelGraph = Graph[Node, DiEdge]
+  private type ModelGraph = Graph[ComponentId, DiEdge]
 
   /** Complete state of FutureStreamBuilder before `build` is called, describing the model graph. */
   private case class State(graph: ModelGraph = Graph.empty, linked: Set[FutureStreamBuilder] = Set.empty) {
@@ -297,4 +283,5 @@ object FutureStreamBuilder {
 
     def merge(other: State): State = State(graph ++ other.graph, linked ++ other.linked)
   }
+
 }

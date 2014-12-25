@@ -224,6 +224,14 @@ object Func {
         }
       }
   }
+
+  /** A convenient debugging function that calls println() for all values it passes along */
+  def log[T](msg: String): SyncFunc[T, T] = new SyncFunc[T, T] {
+    override def apply(t: T): T = {
+      println(s"$msg: $t")
+      t
+    }
+  }
 }
 
 /** The synchronous case of [[Func]]. */

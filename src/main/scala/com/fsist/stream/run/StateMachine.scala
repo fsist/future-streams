@@ -447,6 +447,8 @@ private[run] object StateMachine extends Logging {
 
     private val inputsTerminated = new AtomicInteger()
 
+    val id = System.identityHashCode(this)
+
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
     override def run(): Unit = {

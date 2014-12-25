@@ -1,13 +1,13 @@
 package com.fsist.stream.run
 
 import com.fsist.stream._
-
 import scala.concurrent.{ExecutionContext, Future}
+import scala.language.implicitConversions
 
 /** An actual stream (or general graph). Once an instance exists, it is already running. */
 class RunningStream(val builder: FutureStreamBuilder,
-                   val components: Map[StreamComponent, RunningStreamComponent],
-                   val connectors: Map[Connector[_], RunningConnector[_]],
+                   val components: Map[ComponentId, RunningStreamComponent],
+                   val connectors: Map[ConnectorId[_], RunningConnector[_]],
                    graphOps: GraphOps)
                   (implicit ec: ExecutionContext) {
 
@@ -58,5 +58,35 @@ class RunningStream(val builder: FutureStreamBuilder,
 
   def apply[T](connector: Connector[T]): RunningConnector[T] =
     connectors(connector).asInstanceOf[RunningConnector[T]]
+}
+
+
+/** Wraps each stream component for placement in the graph, and makes sure to compare nodes by identity.
+  * Otherwise StreamComponent case classes that compare equal (e.g. two Merger(3) nodes) would be confused.
+  */
+case class ComponentId(value: StreamComponent) {
+  override def equals(other: Any): Boolean =
+    (other != null) && other.isInstanceOf[ComponentId] && (value eq other.asInstanceOf[ComponentId].value)
+
+  override def hashCode(): Int = System.identityHashCode(value)
+}
+
+object ComponentId {
+  implicit def make(value: StreamComponent) : ComponentId = ComponentId(value)
+}
+
+/** Wraps each Connector when used as a key in a Set or Map.
+  *
+  * Can't use `Node` here because Connector isn't a StreamComponent.
+  */
+case class ConnectorId[T](value: Connector[T]) {
+  override def equals(other: Any): Boolean =
+    (other != null) && other.isInstanceOf[ConnectorId[_]] && (value eq other.asInstanceOf[ConnectorId[_]].value)
+
+  override def hashCode(): Int = System.identityHashCode(value)
+}
+
+object ConnectorId {
+  implicit def make[T](value: Connector[T]) : ConnectorId[T] = ConnectorId(value)
 }
 

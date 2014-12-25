@@ -140,4 +140,20 @@ class SourceTest extends FunSuite with StreamTester {
     val expected = data
     assert(result == expected)
   }
+
+
+  test("Source.concat multi layered, wide") {
+    // This is a regression test
+
+    def merge(level: Int, count: Int): Source[Int] = {
+      if (level == 0) Source.empty[Int]
+      else Source.concat(for (x <- 1 to count) yield merge(level - 1, count).sourceComponent)
+    }
+
+    val source = merge(3, 3)
+
+    val result = source.toList.singleResult().futureValue.sorted
+
+    assert(result == List())
+  }
 }
