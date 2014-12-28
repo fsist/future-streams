@@ -83,4 +83,17 @@ class PipeTest extends FunSuite with StreamTester {
 
     assert(stream.failed.futureValue == error)
   }
+
+  test("Double-delayed pipe") {
+    val data = 1 to 10
+    val promise = Promise[Pipe[Int, Int]]()
+    val result = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+
+    val promise2 = Promise[Pipe[Int, Int]]()
+    promise.success(Pipe.flatten(promise2.future))
+
+    promise2.success(Pipe.nop[Int])
+
+    assert(result.futureValue == data)
+  }
 }
