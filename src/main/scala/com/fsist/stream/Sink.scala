@@ -1,7 +1,7 @@
 package com.fsist.stream
 
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
-import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
+import com.fsist.util.concurrent.{BoundedAsyncQueue, AsyncFunc, SyncFunc, Func}
 
 import scala.annotation.unchecked.uncheckedVariance
 import scala.concurrent.{Promise, Future, ExecutionContext}
@@ -42,7 +42,7 @@ sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
 
   // We guarantee not to violate the variance, because we fulfill this promise using the result value of `onComplete`
   // (or the equivalent) on the same component
-  private[stream] val futureResultPromise : Promise[Res@uncheckedVariance] = Promise[Res]()
+  private[stream] val futureResultPromise: Promise[Res@uncheckedVariance] = Promise[Res]()
 }
 
 /** See the README for the semantics of the three onXxx functions.
@@ -213,5 +213,29 @@ object Sink {
   def drive[In, Res](consumer: StreamConsumer[In, Res])
                     (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     foreachFunc(consumer.onNext, consumer.onComplete, consumer.onError)
+
+  /** A way to pull data from a running Sink. Use with `Sink.asyncPuller`.
+    *
+    * Generates backpressure using a BoundedAsyncQueue until data is pulled.
+    */
+  class AsyncPuller[Out](val queue: BoundedAsyncQueue[Option[Out]]) {
+
+    /** Returns the next element. Fails with [[EndOfStreamException]] when the stream completes.
+      */
+    def pull()(implicit ec: ExecutionContext): Future[Out] = queue.dequeue() map {
+      case Some(t) => t
+      case None =>
+        // Make sure pull always throws from now on
+        queue.enqueue(None)
+        throw new EndOfStreamException
+    }
+  }
+
+  def asyncPuller[In](queueSize: Int = 1)
+                     (implicit builder: FutureStreamBuilder, ec: ExecutionContext): StreamOutput[In, Unit] with AsyncPuller[In] =
+  new AsyncPuller[In](new BoundedAsyncQueue[Option[In]](queueSize)) with AsyncStreamConsumer[In, Unit] {
+    override def onNext(in: In)(implicit ec: ExecutionContext): Future[Unit] = queue.enqueue(Some(in))
+    override def complete()(implicit ec: ExecutionContext): Future[Unit] = queue.enqueue(None)
+  }
 }
 
