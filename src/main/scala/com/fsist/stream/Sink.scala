@@ -3,7 +3,8 @@ package com.fsist.stream
 import com.fsist.stream.run.{RunningOutput, RunningStream, FutureStreamBuilder}
 import com.fsist.util.concurrent.{AsyncFunc, SyncFunc, Func}
 
-import scala.concurrent.{Future, ExecutionContext}
+import scala.annotation.unchecked.uncheckedVariance
+import scala.concurrent.{Promise, Future, ExecutionContext}
 
 import scala.language.higherKinds
 import scala.language.implicitConversions
@@ -31,6 +32,17 @@ sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
   /** A shortcut method that calls `build` and returns the future result produced by this component. */
   def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
 
+  /** Returns the result future that will eventually be completed when the stream runs. This is identical to the Future
+    * returned by the RunningStream for this component, which is also returned by `buildResult`.
+    *
+    * This method is useful when you want to know about the completion and/or the result in a location other than the one
+    * where you actually run the stream, such as when you produce a Sink and give it to someone else to use.
+    */
+  def futureResult(): Future[Res] = futureResultPromise.future
+
+  // We guarantee not to violate the variance, because we fulfill this promise using the result value of `onComplete`
+  // (or the equivalent) on the same component
+  private[stream] val futureResultPromise : Promise[Res@uncheckedVariance] = Promise[Res]()
 }
 
 /** See the README for the semantics of the three onXxx functions.

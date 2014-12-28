@@ -30,10 +30,20 @@ class SinkTest extends FunSuite with StreamTester {
     assert(sum == data.sum, "Data processed correctly")
   }
 
-  test("StreamOutput completion promise is fulfilled") {
+  test("StreamOutput completion and futureResult promises are fulfilled") {
     val sink = Sink.foreach[Int, Unit](Func.nopLiteral)
     val stream = Source.of(1, 2, 3).to(sink).build()
-    stream(sink).completion.futureValue(Timeout(1.second))
+    stream(sink).completion.futureValue(impatience)
+    sink.futureResult().futureValue(impatience)
+  }
+
+  test("StreamOutput futureResult fails if the stream fails") {
+    val err = new IllegalArgumentException
+    val src = Source.generate[Int](throw err)
+    val sink = Sink.foreach[Int, Unit](println(_))
+    val result = src.to(sink).buildResult
+    assert(result.failed.futureValue == err)
+    assert(sink.futureResult.failed.futureValue == err)
   }
 
   test("single") {

@@ -246,6 +246,7 @@ private[run] object StateMachine extends LazyLogging {
   class ConsumerMachine[In, Res](val output: StreamConsumer[In, Res], val graph: GraphOps)
                                 (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()
+    output.futureResultPromise.completeWith(resultPromise.future)
 
     completionPromise.future recover {
       case NonFatal(e) => resultPromise.tryFailure(e)
@@ -273,6 +274,7 @@ private[run] object StateMachine extends LazyLogging {
   class DelayedSinkMachine[In, Res](val output: DelayedSink[In, Res], val graph: GraphOps)
                                    (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()
+    output.futureResultPromise.completeWith(resultPromise.future)
 
     completionPromise.future recover {
       case NonFatal(e) => resultPromise.tryFailure(e)
