@@ -23,8 +23,6 @@ object SinkComponent {
 private[stream] trait SinkComponentBase[-In] extends SinkComponent[In]
 
 /** A Sink that sends data outside the stream, calculates a result, and/or has some other useful side effects.
-  *
-  * See the README for the semantics of the three onXxx functions.
   */
 sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
   /** A shortcut method that calls `build` and returns the RunningStreamComponent representing `this`. */
@@ -32,8 +30,11 @@ sealed trait StreamOutput[-In, +Res] extends SinkComponent[In] {
 
   /** A shortcut method that calls `build` and returns the future result produced by this component. */
   def buildResult()(implicit ec: ExecutionContext): Future[Res] = buildAndGet()(ec).result
+
 }
 
+/** See the README for the semantics of the three onXxx functions.
+  */
 sealed trait StreamConsumer[-In, +Res] extends StreamOutput[In, Res] {
   /** Called on each input element, non-concurrently with itself and onComplete. */
   def onNext: Func[In, Unit]
