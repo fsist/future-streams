@@ -51,6 +51,9 @@ sealed trait StreamConsumer[-In, +Res] extends StreamOutput[In, Res] {
   def onError: Func[Throwable, Unit]
 }
 
+/** This trait allows extending the sealed StreamConsumer trait inside this package. */
+private[stream] trait StreamConsumerBase[-In, +Res] extends StreamConsumer[In, Res]
+
 /** A trait that allows implementing a custom StreamOutput that processes items synchronously.
   *
   * This often allows writing more elegant code for complex stateful consumers.
@@ -192,5 +195,10 @@ object Sink {
   def flatten[In, Res](future: Future[Sink[In, Res]])
                       (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
     DelayedSink(builder, future)
+
+  /** Pass the results of the stream to this consumer. Intended to be used together with `Source.driven`. */
+  def drive[In, Res](consumer: StreamConsumer[In, Res])
+                    (implicit builder: FutureStreamBuilder): StreamOutput[In, Res] =
+    foreachFunc(consumer.onNext, consumer.onComplete, consumer.onError)
 }
 

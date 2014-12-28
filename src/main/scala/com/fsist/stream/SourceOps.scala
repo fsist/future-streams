@@ -305,6 +305,13 @@ trait SourceOps[+Out] {
     sourceComponent.to(sink)
   }
 
+  // Sink.drive
+
+  def drive[Res](consumer: StreamConsumer[Out, Res]): StreamOutput[_ <: Out, Res] = {
+    val sink = Sink.drive(consumer)
+    sourceComponent.to(sink)
+  }
+
   // ===================================================================================================================
   // Sink + building the result shortcuts
   // ===================================================================================================================

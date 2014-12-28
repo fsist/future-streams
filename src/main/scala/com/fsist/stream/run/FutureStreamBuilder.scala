@@ -162,6 +162,7 @@ class FutureStreamBuilder extends LazyLogging {
         component match {
           case input: StreamProducer[_] => (node, new ProducerMachine(input, graphOps))
           case input: DelayedSource[_] => (node, new DelayedSourceMachine(input, graphOps))
+          case input: DrivenSource[_] => (node, new DrivenSourceMachine(input, graphOps))
           case output: StreamConsumer[_, _] => (node, new ConsumerMachine(output, graphOps))
           case output: DelayedSink[_, _] => (node, new DelayedSinkMachine(output, graphOps))
           case transform: Transform[_, _] => (node, new TransformMachine(transform, graphOps))

@@ -209,6 +209,40 @@ private[run] object StateMachine extends LazyLogging {
     }
   }
 
+  class DrivenSourceMachine[Out](val input: DrivenSource[Out], val graph: GraphOps)
+                                (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
+    override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
+
+    @volatile private var failed : Throwable = null
+
+    override def run(): Unit = {
+      // This method doesn't actually keep running, since the input is driven by the user.
+
+      val Consumer(consumerOnNext, consumerOnComplete) = next.get.consumer
+
+      def passUnlessFailed[T] = new SyncFunc[T, T] {
+        override def apply(t: T): T = {
+          val f = failed
+          if (f != null) throw f
+          else t
+        }
+      }
+
+      val impl = new StreamConsumerBase[Out, Unit] {
+        override def onNext: Func[Out, Unit] = passUnlessFailed[Out] ~> consumerOnNext
+
+        override def onComplete: Func[Unit, Unit] = passUnlessFailed[Unit] ~> consumerOnComplete
+
+        override def onError: Func[Throwable, Unit] = Func.nop
+
+        override def builder: FutureStreamBuilder = input.builder
+      }
+      input.asidePromise.success(impl)
+    }
+
+    override def userOnError: Func[Throwable, Unit] = (e: Throwable) => failed = e
+  }
+
   class ConsumerMachine[In, Res](val output: StreamConsumer[In, Res], val graph: GraphOps)
                                 (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
     val resultPromise = Promise[Res]()

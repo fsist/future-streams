@@ -156,4 +156,22 @@ class SourceTest extends FunSuite with StreamTester {
 
     assert(result == List())
   }
+
+  test("DrivenSource") {
+    val data = 1 to 10
+
+    val source = Source.driven[Int]
+    awaitTimeout(source.aside, "Consumer should not be provided until stream starts running")(impatience)
+
+    val result = source.toList.singleResult
+    awaitTimeout(result, "Stream should not complete while we haven't pushed EOF into the consumer")(impatience)
+
+    val consumer = source.aside.futureValue
+    assert(consumer.onNext.isSync, "Entire stream was built synchronously")
+
+    for (i <- data) consumer.onNext.asSync.apply(i)
+    consumer.onComplete.asSync.apply(())
+
+    assert(result.futureValue == data)
+  }
 }
