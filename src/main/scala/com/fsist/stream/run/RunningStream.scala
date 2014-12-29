@@ -1,5 +1,7 @@
 package com.fsist.stream.run
 
+import java.util.concurrent.atomic.AtomicLong
+
 import com.fsist.stream._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
@@ -69,10 +71,14 @@ case class ComponentId(value: StreamComponent) {
     (other != null) && other.isInstanceOf[ComponentId] && (value eq other.asInstanceOf[ComponentId].value)
 
   override def hashCode(): Int = System.identityHashCode(value)
+
+  override lazy val toString: String = ComponentId.counter.incrementAndGet().toString
 }
 
 object ComponentId {
   implicit def make(value: StreamComponent): ComponentId = ComponentId(value)
+
+  private val counter = new AtomicLong()
 }
 
 /** Wraps each Connector when used as a key in a Set or Map.
