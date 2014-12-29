@@ -1,5 +1,6 @@
 package com.fsist.stream
 
+import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 
@@ -95,5 +96,24 @@ class PipeTest extends FunSuite with StreamTester {
     promise2.success(Pipe.nop[Int])
 
     assert(result.futureValue == data)
+  }
+
+  test("Pipe of pipe") {
+    // Regression test for bug in FutureStreamBuilder
+    val data = 1 to 10
+
+    implicit val builder = new FutureStreamBuilder
+
+    val src = Source.from(data)
+
+    val tr1 = Transform.map[Int, Int](Func.pass[Int])
+    val pipe1 = Pipe(tr1, tr1.map(_ + 1))
+
+    val tr2 = pipe1.source.map(_ + 1)
+    val pipe2 = Pipe(pipe1, tr2) // This is legal
+
+    val result = src.to(pipe2).toList.singleResult
+
+    assert(result.futureValue == data.map(_ + 2))
   }
 }

@@ -75,18 +75,17 @@ class FutureStreamBuilder extends LazyLogging {
 
   /** Irreversibly connects two components together, and possibly links their builders. */
   def connect[In >: Out, Out](source: SourceComponent[Out], sink: SinkComponent[In]): Unit = {
-    val trueSource = source match {
-      case Pipe(_, source) => source
-      case other => other
+    // Replaces Pipes with their contents
+    source match {
+      case Pipe(_, source) => connect(source, sink)
+      case _ => sink match {
+        case Pipe(sink, _) => connect(source, sink)
+        case _ =>
+          alterState(_.mapGraph(_ + DiEdge[ComponentId](source, sink)))
+          if (source.builder ne this) link(source.builder)
+          if (sink.builder ne this) link(sink.builder)
+      }
     }
-    val trueSink = sink match {
-      case Pipe(sink, _) => sink
-      case other => other
-    }
-
-    alterState(_.mapGraph(_ + DiEdge[ComponentId](trueSource, trueSink)))
-    if (trueSource.builder ne this) link(trueSource.builder)
-    if (trueSink.builder ne this) link(trueSink.builder)
   }
 
   private def collectLinkedBuilders(seen: Set[FutureStreamBuilder] = Set.empty,
@@ -233,39 +232,45 @@ class FutureStreamBuilder extends LazyLogging {
     // because the Connector itself isn't in the model
     //    require(model.isConnected, "Stream graph must be connected")
 
-    require(model.isAcyclic, "Cycles are not yet supported")
+    try {
 
-    for (node <- model.nodes.toOuter) {
-      require(!node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
-    }
+      require(model.isAcyclic, "Cycles are not yet supported")
 
-    for (DiEdge(from, to) <- model.edges.toOuter) {
-      require(model.contains(from), s"Graph must contain all linked nodes, missing $from (linked to $to)")
-      require(model.contains(to), s"Graph must contain all linked nodes, missing $to (linked from $from)")
-    }
+      for (node <- model.nodes.toOuter) {
+        require(!node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
+      }
 
-    model.degreeNodeSeq(model.OutDegree).map {
-      case (degree, innerNode) => (degree, innerNode.value.value)
-    }.foreach {
-      _ match {
-        case (1, node) => require(!node.isInstanceOf[StreamOutput[_, _]], s"Node $node is a StreamOutput and cannot be connected to another Sink")
-        case (0, node) => require(node.isInstanceOf[StreamOutput[_, _]] || node.isInstanceOf[ConnectorInput[_]], s"Node $node must be connected to a Sink")
-        case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sinks at once, graph was $model")
-        case _ =>
+      for (DiEdge(from, to) <- model.edges.toOuter) {
+        require(model.contains(from), s"Graph must contain all linked nodes, missing $from (linked to $to)")
+        require(model.contains(to), s"Graph must contain all linked nodes, missing $to (linked from $from)")
+      }
+
+      model.degreeNodeSeq(model.OutDegree).map {
+        case (degree, innerNode) => (degree, innerNode.value.value)
+      }.foreach {
+        _ match {
+          case (1, node) => require(!node.isInstanceOf[StreamOutput[_, _]], s"Node $node is a StreamOutput and cannot be connected to another Sink")
+          case (0, node) => require(node.isInstanceOf[StreamOutput[_, _]] || node.isInstanceOf[ConnectorInput[_]], s"Node $node must be connected to a Sink")
+          case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sinks at once, graph was $model")
+          case _ =>
+        }
+      }
+
+      model.degreeNodeSeq(model.InDegree).map {
+        case (degree, innerNode) => (degree, innerNode.value.value)
+      }.foreach {
+        _ match {
+          case (1, node) => require(!node.isInstanceOf[StreamInput[_]], s"Node $node is a StreamInput and cannot be connected to another Source")
+          case (0, node) => require(node.isInstanceOf[StreamInput[_]] || node.isInstanceOf[ConnectorOutput[_]], s"Node $node must be connected to a Source")
+          case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sources at once")
+          case _ =>
+        }
       }
     }
-
-    model.degreeNodeSeq(model.InDegree).map {
-      case (degree, innerNode) => (degree, innerNode.value.value)
-    }.foreach {
-      _ match {
-        case (1, node) => require(!node.isInstanceOf[StreamInput[_]], s"Node $node is a StreamInput and cannot be connected to another Source")
-        case (0, node) => require(node.isInstanceOf[StreamInput[_]] || node.isInstanceOf[ConnectorOutput[_]], s"Node $node must be connected to a Source")
-        case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sources at once")
-        case _ =>
-      }
+    catch {
+      case e: IllegalArgumentException =>
+        throw new IllegalArgumentException(s"Bad model: $model", e)
     }
-
   }
 }
 
