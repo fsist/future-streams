@@ -105,15 +105,23 @@ class FutureStreamBuilder extends LazyLogging {
 
   /** Removes Transform.nop nodes from the graph, connecting their inputs and outputs directly. */
   private def removeNopNodes(graph: ModelGraph): ModelGraph = {
-    var newGraph = graph
+    type Node = graph.NodeT
 
-    for (node <- graph.nodes if node.value.value.isInstanceOf[NopTransform[_]];
-         pred <- node.diPredecessors;
-         succ <- node.diSuccessors) {
-      newGraph = newGraph + DiEdge(pred.value, succ.value) - DiEdge(pred.value, node.value) - DiEdge(node.value, succ.value) - node
-    }
+    def isNop(node: Node): Boolean = node.value.value.isInstanceOf[NopTransform[_]]
 
-    newGraph
+    def nonNopPred(node: Node): Node = if (isNop(node)) nonNopPred(node.diPredecessors.head) else node
+    def nonNopSucc(node: Node): Node = if (isNop(node)) nonNopSucc(node.diSuccessors.head) else node
+
+    val nopNodes = graph.nodes.filter(isNop)
+    val nonNopPreds = (for (node <- nopNodes) yield nonNopPred(node)).toSet
+
+    val newEdges =
+      for (pred <- nonNopPreds) yield {
+        val succ = nonNopSucc(pred.diSuccessors.head)
+        DiEdge(pred.value, succ.value)
+      }
+
+    graph -- nopNodes /* Also removes all their incident edges */ ++ newEdges
   }
 
   /** Builds and starts a runnable FutureStream from the current graph. */

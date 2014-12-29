@@ -109,8 +109,19 @@ class TransformTest extends FunSuite with StreamTester {
 
   test("nop") {
     val range = 1 to 10
-    val result = Source.from(range).transform(Transform.nop[Int]).collect[List].singleResult().futureValue
-    assert(result == range)
+
+    // Testing different numbers of Nops in sequence is a regression test
+    def tr = Transform.nop[Int]
+    for (i <- 1 to 5) {
+      val src = Source.from(range)
+      val transformed = (1 to i).foldLeft(src: SourceComponent[Int]){
+        case (src, _) => src.transform(tr)
+      }
+
+      val result = transformed.collect[List].singleResult().futureValue
+
+      assert(result == range, s"$i nops")
+    }
   }
 
   test("concat") {
