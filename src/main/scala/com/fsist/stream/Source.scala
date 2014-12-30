@@ -214,7 +214,7 @@ object Source {
     */
   def from[Out](queue: AsyncQueue[Option[Out]])
                (implicit b: FutureStreamBuilder, ec: ExecutionContext): StreamInput[Out] =
-    generateAsync[Out](queue.dequeue() map {
+    generateAsync[Out](new FastFuture(queue.dequeue()) map {
       case Some(out) => out
       case None => throw new EndOfStreamException
     })
@@ -224,7 +224,7 @@ object Source {
     */
   def from[Out](queue: BoundedAsyncQueue[Option[Out]])
                (implicit b: FutureStreamBuilder, ec: ExecutionContext): StreamInput[Out] =
-    generateAsync[Out](queue.dequeue() map {
+    generateAsync[Out](new FastFuture(queue.dequeue()) map {
       case Some(out) => out
       case None => throw new EndOfStreamException
     })
