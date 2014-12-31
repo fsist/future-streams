@@ -5,6 +5,7 @@ import akka.http.util.FastFuture
 import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
 import scala.language.implicitConversions
+import scala.util.{Failure, Success}
 import scala.util.control.NonFatal
 
 /** Abstracts over synchronous and asynchronous functions. Instances can be composed efficiently, building new synchronous
@@ -196,9 +197,20 @@ object Func {
       }
     case asyncf: AsyncFunc[A, _] =>
       new AsyncFunc[Iterable[A], Unit] {
+
+        private def nonrecLoopStep(iter: Iterator[A])(implicit ec: ExecutionContext): Future[Unit] = loopStep(iter)
+
+        @tailrec
         private def loopStep(iter: Iterator[A])(implicit ec: ExecutionContext): Future[Unit] = {
           if (!iter.hasNext) futureSuccess
-          else asyncf(iter.next()) map (_ => loopStep(iter))
+          else {
+            val fut = asyncf(iter.next())
+            fut.value match {
+              case Some(Success(_)) => loopStep(iter)
+              case Some(Failure(e)) => throw e
+              case None => fut.flatMap (_ => nonrecLoopStep(iter))
+            }
+          }
         }
 
         override def apply(a: Iterable[A])(implicit ec: ExecutionContext): Future[Unit] = loopStep(a.iterator)
