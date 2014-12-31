@@ -213,7 +213,7 @@ private[run] object StateMachine extends LazyLogging {
                                 (implicit val ec: ExecutionContext) extends StateMachineWithOneOutput[Out] with RunnableMachine {
     override val running: RunningInput[Out] = RunningInput(completionPromise.future, input)
 
-    @volatile private var failed : Throwable = null
+    @volatile private var failed: Throwable = null
 
     override def run(): Unit = {
       // This method doesn't actually keep running, since the input is driven by the user.
@@ -594,12 +594,21 @@ private[run] object StateMachine extends LazyLogging {
 
         override def apply(t: T)(implicit ec: ExecutionContext): Future[Unit] = {
           val fut = new FastFuture(free.dequeue())
-          fut.flatMap(dispatchAndRequeue(t, _))
+          fut.map(consumer =>
+            // Deliberate `map` and not `flatMap`; fire and forget this, don't wait for it
+            dispatchAndRequeue(t, consumer)
+          )
         }
       }
 
-      val onComplete = Func.tee[Unit](outputs.map(_.consumer.onComplete): _*) ~>
-        Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
+      val onComplete = {
+        // Need to wait for all onNext invocations to complete
+        AsyncFunc {
+          Future.sequence(List.fill(outputs.size)(free.dequeue())) map (_ => ())
+        } ~>
+          Func.tee[Unit](outputs.map(_.consumer.onComplete): _*) ~>
+          Func(completionPromise.success(())) ~> Func(()) composeFailure (graph.failGraph)
+      }
 
       Consumer(onNext, onComplete)
     }

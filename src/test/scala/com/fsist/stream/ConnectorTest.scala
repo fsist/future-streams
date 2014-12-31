@@ -124,7 +124,7 @@ class ConnectorTest extends FunSuite with StreamTester {
     val scatterer = Source.from(range).scatter(3)
 
     val sinks = for (output <- scatterer.outputs) yield {
-      output.collect[List]().single
+      output.toList.single
     }
 
     val stream = sinks(0).build()
