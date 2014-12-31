@@ -32,12 +32,14 @@ import scala.concurrent.{ExecutionContext, Future, Promise}
   */
 class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]](Right(Queue())) with LazyLogging {
 
+  private val empty = Queue.empty
+
   /** Enqueue an item synchronously. */
   @tailrec final def enqueue(t: T): Unit = get match {
     case r@Right(q) => // Queue doesn't have any waiters so enqueue this value
       if (!compareAndSet(r, Right(q.enqueue(t)))) enqueue(t)
     case l@Left(Queue(p)) => // Queue has a single waiter
-      if (!compareAndSet(l, Right(Queue()))) enqueue(t)
+      if (!compareAndSet(l, Right(empty))) enqueue(t)
       else p success t
     case l@Left(q) => // Queue has multiple waiters
       val (p, ps) = q.dequeue
@@ -56,7 +58,7 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
       val p = Promise[T]()
       if (!compareAndSet(l, Left(q.enqueue(p)))) dequeue()
       else p.future
-    case r@Right(Queue()) => // Empty queue, become first waiting consumer
+    case r@Right(q) if q.isEmpty => // Empty queue, become first waiting consumer
       val p = Promise[T]()
       if (!compareAndSet(r, Left(Queue(p)))) dequeue()
       else p.future
@@ -72,7 +74,7 @@ class AsyncQueue[T] extends AtomicReference[Either[Queue[Promise[T]], Queue[T]]]
   @tailrec final def tryDequeue(): Option[T] = get match {
     case l@Left(q) => // Already has waiting consumers
       None
-    case r@Right(Queue()) => // Empty queue
+    case r@Right(q) if q.isEmpty => // Empty queue
       None
     case r@Right(q) => // Already has values. get the head
       val (t, ts) = q.dequeue
