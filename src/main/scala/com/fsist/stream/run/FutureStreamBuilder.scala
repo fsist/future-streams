@@ -130,6 +130,7 @@ class FutureStreamBuilder extends LazyLogging {
     validateBeforeBuilding(st)
 
     val model = removeNopNodes(st.graph)
+    logger.trace(s"Running stream:\n${describeGraph(model)}")
 
     // Declare here, set later, and graphOps will access it later from its lazy val
     var stateMachinesVector: Vector[StateMachine] = Vector.empty
@@ -279,6 +280,24 @@ class FutureStreamBuilder extends LazyLogging {
       case e: IllegalArgumentException =>
         throw new IllegalArgumentException(s"Bad model: $model", e)
     }
+  }
+
+  /** Returns a multiline description of the graph structure, suitable for logging. */
+  def describeGraph(): String = describeGraph(mergeLinkedStates().graph)
+
+  private def describeGraph(model: ModelGraph): String = {
+    val sb = new StringBuilder
+
+    sb ++= s"Nodes: ${model.nodes}\n"
+    sb ++= s"Edges: ${model.edges}\n"
+
+    sb ++= s"Where:\n"
+
+    for (node: ComponentId <- model.nodes.toOuter) {
+      sb ++= s"$node\t= ${node.value}\n"
+    }
+
+    sb.result()
   }
 }
 
