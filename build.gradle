@@ -1,0 +1,51 @@
+defaultTasks 'compileScala', 'compileTestScala'
+
+task wrapper(type: Wrapper) {
+  gradleVersion = '2.2.1'
+}
+
+apply plugin: 'scala'
+
+// Can't set targetCompatibility (i.e. JDK level) to 1.7 or above because of https://issues.scala-lang.org/browse/SI-8645
+// Which was due to JDK bug https://bugs.openjdk.java.net/browse/JDK-8046233 which was fixed in JDK 7u76 / 8u25 (but we don't have those new versions yet)
+compileScala.sourceCompatibility = '1.6'
+compileScala.targetCompatibility = '1.6'
+
+compileScala.scalaCompileOptions.deprecation = true
+compileScala.scalaCompileOptions.failOnError = true
+compileScala.scalaCompileOptions.unchecked = true
+compileScala.scalaCompileOptions.additionalParameters = ['-feature']
+
+repositories {
+  mavenCentral()
+}
+
+version = '0.7'
+
+dependencies {
+  compile 'org.scala-lang:scala-library:2.11.4'
+  compile 'org.scala-lang:scala-reflect:2.11.4'
+  compile 'org.scala-lang:scala-compiler:2.11.4'
+
+  compile 'com.typesafe.scala-logging:scala-logging_2.11:3.1.0'
+  compile 'com.assembla.scala-incubator:graph-core_2.11:1.9.0'
+
+  testCompile 'ch.qos.logback:logback-classic:1.1.2'
+  testCompile 'org.scalatest:scalatest_2.11:2.2.1'
+  testCompile 'org.pegdown:pegdown:1.4.2'
+}
+
+/* TESTS */
+
+task testJar(type: Jar, dependsOn: compileTestScala) {
+  from compileTestScala.destinationDir
+  appendix 'test' // Names the jar
+}
+
+task scalatest(type: JavaExec, dependsOn: [ compileTestScala, testJar] ) {
+  maxHeapSize '4096M'
+  main 'org.scalatest.tools.Runner'
+  classpath compileTestScala.classpath
+  classpath testJar.archivePath
+  args = [ '-o', '-w', 'com.fsist', '-h', 'test-output-html', '-R', testJar.archivePath ]
+}

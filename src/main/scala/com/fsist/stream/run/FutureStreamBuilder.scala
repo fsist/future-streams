@@ -1,0 +1,303 @@
+package com.fsist.stream.run
+
+import java.util.concurrent.atomic.AtomicReference
+
+import com.fsist.stream._
+import com.fsist.stream.run.StateMachine._
+import com.typesafe.scalalogging.LazyLogging
+
+import scala.annotation.tailrec
+import scala.concurrent.{Future, Promise, ExecutionContext}
+import scala.util.control.NonFatal
+import scalax.collection.GraphEdge.DiEdge
+import scalax.collection.immutable.Graph
+
+import scala.language.implicitConversions
+
+/** Builds the mutable state describing the stream graph being built, and allows building it into a runnable [[RunningStream]].
+  *
+  * All operations are concurrent-safe, implemented using compare-and-swap on a single AtomicReference to an immutable State.
+  * Since building a graph model usually has no performance issues, this errs in favor of correctness and catching problems
+  * early, instead of relying on the user to operate a mutable model.
+  *
+  * If you use this explicitly, you need to:
+  * - `register` all stream components (Sources, Sinks, Connectors and Transforms)
+  * - `connect` all components together, so that no Source or Sink remains unconnected
+  * - `build` the runnable FutureStream.
+  *
+  * Normally, however, this class remains implicit in the background. Each StreamComponent constructor creates a new
+  * instance of this class if an existing implicit value is not provided; every shortcut method (like `Source.map`)
+  * passes its own Builder instance as the implicit parameter to the new component it creates. All components and links
+  * are registered with the builder.
+  *
+  * Whenever two different builder instances meet (by connecting two stream components that were created using separate
+  * builders), they become bidirectionally linked. Calling `build` on any of them takes all of them into account, and so
+  * it doesn't matter how the state produced by `register` and `connect` is initially distributed between them.
+  *
+  * After calling `build` once, you can keep modifying the graph (this will not affect the previously built stream),
+  * and/or call `build` again, producing a separate stream. However, if any components are not reusable
+  * (e.g. any custom Func which is a closure over external mutable state), the behavior of the second and future streams
+  * will be undefined.
+  */
+class FutureStreamBuilder extends LazyLogging {
+
+  import FutureStreamBuilder._
+
+  private val state = new AtomicReference[State](State())
+
+  @tailrec
+  private def alterState(func: State => State): Unit = {
+    val old = state.get()
+    val altered = func(old)
+    if (!state.compareAndSet(old, altered)) alterState(func)
+  }
+
+  // == PUBLIC API ==
+
+  /** Adds this component to the graph. If it's already in the graph, it's a no-op.
+    *
+    * This doesn't link it to any other components; it's a safety measure that lets us detect any unconnected components
+    * when `build` is called.
+    */
+  def register(component: StreamComponent): Unit = component match {
+    case Pipe(sink, source) =>
+      register(sink)
+      register(source)
+    case other => alterState(_.mapGraph(_ + other))
+  }
+
+  private def link(builder: FutureStreamBuilder): Unit = {
+    if (!state.get.linked.contains(builder)) {
+      alterState(_.mapLinked(_ + builder))
+      builder.link(this)
+    }
+  }
+
+  /** Irreversibly connects two components together, and possibly links their builders. */
+  def connect[In >: Out, Out](source: SourceComponent[Out], sink: SinkComponent[In]): Unit = {
+    // Replaces Pipes with their contents
+    source match {
+      case Pipe(_, source) => connect(source, sink)
+      case _ => sink match {
+        case Pipe(sink, _) => connect(source, sink)
+        case _ =>
+          alterState(_.mapGraph(_ + DiEdge[ComponentId](source, sink)))
+          if (source.builder ne this) link(source.builder)
+          if (sink.builder ne this) link(sink.builder)
+      }
+    }
+  }
+
+  private def collectLinkedBuilders(seen: Set[FutureStreamBuilder] = Set.empty,
+                                    next: FutureStreamBuilder = this): Set[FutureStreamBuilder] = {
+    if (seen.contains(next)) seen
+    else {
+      next.state.get().linked.foldLeft(seen + next)(collectLinkedBuilders)
+    }
+  }
+
+  private def mergeLinkedStates(): State =
+    collectLinkedBuilders().foldLeft(State()) {
+      case (state, builder) =>
+        val st = builder.state.get
+        state.merge(st)
+    }
+
+  /** Builds and starts a runnable FutureStream from the current graph. */
+  def run()(implicit ec: ExecutionContext): RunningStream = {
+    val st = mergeLinkedStates()
+    validateBeforeBuilding(st)
+
+    val model = st.graph
+    logger.trace(s"Running stream:\n${describeGraph(model)}")
+
+    // Declare here, set later, and graphOps will access it later from its lazy val
+    var stateMachinesVector: Vector[StateMachine] = Vector.empty
+
+    val graphOps = new GraphOps with LazyLogging {
+      private lazy val stateMachines = stateMachinesVector
+      private val failure = Promise[Throwable]()
+
+      override def failGraph(th: Throwable): Unit = {
+        if (failure.trySuccess(th))
+          stateMachines foreach (_.fail(th))
+        else {
+          val existing = failure.future.value.get.get
+          if (th ne existing) {
+            logger.trace(s"Discarding additional error $th, already failed with $existing")
+          }
+        }
+      }
+    }
+
+    val allConnectors: Set[ConnectorId[_]] =
+      (for (ComponentId(component) <- model.nodes.toOuter if component.isInstanceOf[ConnectorEdge[_]])
+      yield ConnectorId(component.asInstanceOf[ConnectorEdge[_]].connector)).toSet
+
+    // Create the StateMachine instances
+
+    val connectorMachines: Map[ConnectorId[_], ConnectorMachine[_]] =
+      allConnectors.map({
+        case node@ConnectorId(merger: Merger[_]) => (node, new MergerMachine(merger, graphOps))
+        case node@ConnectorId(splitter: Splitter[_]) => (node, new SplitterMachine(splitter, graphOps))
+        case node@ConnectorId(scatterer: Scatterer[_]) => (node, new ScattererMachine(scatterer, graphOps))
+      }).toMap
+
+    // All component types other than connectors
+    val componentMachines: Map[ComponentId, StateMachine] =
+      (for (node@ComponentId(component) <- model.nodes.toOuter if !component.isInstanceOf[ConnectorEdge[_]]) yield {
+        component match {
+          case input: StreamProducer[_] => (node, new ProducerMachine(input, graphOps))
+          case input: DelayedSource[_] => (node, new DelayedSourceMachine(input, graphOps))
+          case input: DrivenSource[_] => (node, new DrivenSourceMachine(input, graphOps))
+          case output: StreamConsumer[_, _] => (node, new ConsumerMachine(output, graphOps))
+          case output: DelayedSink[_, _] => (node, new DelayedSinkMachine(output, graphOps))
+          case nop: NopTransform[_ ] => (node, new NopMachine(nop, graphOps))
+          case transform: Transform[_, _] => (node, new TransformMachine(transform, graphOps))
+          case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
+        }
+      }).toMap
+
+    // All machines including connectors
+    val allMachines = componentMachines ++ {
+      val builder = Map.newBuilder[ComponentId, StateMachine]
+      // Try to write it using connectorMachines.flatMap - you'll get some delicious type errors
+      connectorMachines.foreach {
+        case (k, v) => k.value.edges.foreach {
+          case e => builder += ((e, v))
+        }
+      }
+      builder.result()
+    }
+
+    stateMachinesVector = allMachines.values.toVector
+
+    // Only the sink-like machines
+    val sinkMachines: Map[ComponentId, StateMachineWithInput[_]] =
+      allMachines.filter {
+        case (component, machine) => machine.isInstanceOf[StateMachineWithInput[_]]
+      }.mapValues(_.asInstanceOf[StateMachineWithInput[_]])
+
+    // Connect the state machines to one another
+
+    for (DiEdge(ComponentId(from: SourceComponent[_]), ComponentId(to: SinkComponent[_])) <- model.edges.toOuter) {
+      from match {
+        // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
+        case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
+          allMachines(from) match {
+            case machine: ConnectorMachineWithOutputs[_] =>
+              val outputIndex = output.connector.outputs.indexOf(output)
+              val outputMachine = sinkMachines(to).asInstanceOf[StateMachineWithInput[machine.TT]]
+              machine.consumers(outputIndex) = Some(outputMachine)
+            case other => throw new IllegalArgumentException(s"No others allowed")
+          }
+        case _ =>
+          allMachines(from) match {
+            case machine: StateMachineWithOneOutput[_] =>
+              machine.next = Some(sinkMachines(to).asInstanceOf[StateMachineWithInput[machine.TOut]])
+            case other => throw new IllegalArgumentException(s"No others allowed")
+          }
+      }
+    }
+
+    // Start the initial machines. Note that `allMachines` can contain the same value many times (for Connectors mapped
+    // from multiple StreamComponents which are their edges) so we use .toSet to only `run` each machine once.
+    for (machine <- allMachines.values.toSet if machine.isInstanceOf[RunnableMachine]) {
+      Future {
+        machine.asInstanceOf[RunnableMachine].run()
+      } recover {
+        case NonFatal(e) =>
+          graphOps.failGraph(e)
+      }
+    }
+
+    new RunningStream(this, componentMachines.mapValues(_.running), connectorMachines.mapValues(_.running), graphOps)
+  }
+
+  private def validateBeforeBuilding(state: State): Unit = {
+    val model = state.graph
+
+    // TODO this fails because it notices, correctly, that the input- and output-side of Connectors are not connected,
+    // because the Connector itself isn't in the model
+    //    require(model.isConnected, "Stream graph must be connected")
+
+    try {
+
+      require(model.isAcyclic, "Cycles are not yet supported")
+
+      for (node <- model.nodes.toOuter) {
+        require(!node.isInstanceOf[Pipe[_, _]], "Graph must not contain Pipes (their internal graph is supposed to be substituted)")
+      }
+
+      for (DiEdge(from, to) <- model.edges.toOuter) {
+        require(model.contains(from), s"Graph must contain all linked nodes, missing $from (linked to $to)")
+        require(model.contains(to), s"Graph must contain all linked nodes, missing $to (linked from $from)")
+      }
+
+      model.degreeNodeSeq(model.OutDegree).map {
+        case (degree, innerNode) => (degree, innerNode.value.value)
+      }.foreach {
+        _ match {
+          case (1, node) => require(!node.isInstanceOf[StreamOutput[_, _]], s"Node $node is a StreamOutput and cannot be connected to another Sink")
+          case (0, node) => require(node.isInstanceOf[StreamOutput[_, _]] || node.isInstanceOf[ConnectorInput[_]], s"Node $node must be connected to a Sink")
+          case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sinks at once, graph was $model")
+          case _ =>
+        }
+      }
+
+      model.degreeNodeSeq(model.InDegree).map {
+        case (degree, innerNode) => (degree, innerNode.value.value)
+      }.foreach {
+        _ match {
+          case (1, node) => require(!node.isInstanceOf[StreamInput[_]], s"Node $node is a StreamInput and cannot be connected to another Source")
+          case (0, node) => require(node.isInstanceOf[StreamInput[_]] || node.isInstanceOf[ConnectorOutput[_]], s"Node $node must be connected to a Source")
+          case (degree, node) if degree > 1 => throw new IllegalArgumentException(s"Node $node cannot be connected to $degree (>1) Sources at once")
+          case _ =>
+        }
+      }
+    }
+    catch {
+      case e: IllegalArgumentException =>
+        throw new IllegalArgumentException(s"Bad model: $model", e)
+    }
+  }
+
+  /** Returns a multiline description of the graph structure, suitable for logging. */
+  def describeGraph(): String = describeGraph(mergeLinkedStates().graph)
+
+  private def describeGraph(model: ModelGraph): String = {
+    val sb = new StringBuilder
+
+    sb ++= s"Nodes: ${model.nodes}\n"
+    sb ++= s"Edges: ${model.edges}\n"
+
+    sb ++= s"Where:\n"
+
+    for (node: ComponentId <- model.nodes.toOuter) {
+      sb ++= s"$node\t= ${node.value}\n"
+    }
+
+    sb.result()
+  }
+}
+
+object FutureStreamBuilder {
+  /** Implicitly creates a new Builder whenever one is needed */
+  implicit def makeNew: FutureStreamBuilder = new FutureStreamBuilder
+
+  /** Type of the edges in the model graph. */
+  private type ModelEdge = DiEdge[ComponentId]
+
+  /** Type of the model graph (as opposed to the built, runnable graph). */
+  private type ModelGraph = Graph[ComponentId, DiEdge]
+
+  /** Complete state of FutureStreamBuilder before `build` is called, describing the model graph. */
+  private case class State(graph: ModelGraph = Graph.empty, linked: Set[FutureStreamBuilder] = Set.empty) {
+    def mapGraph(func: ModelGraph => ModelGraph): State = copy(graph = func(this.graph))
+
+    def mapLinked(func: Set[FutureStreamBuilder] => Set[FutureStreamBuilder]): State = copy(linked = func(this.linked))
+
+    def merge(other: State): State = State(graph ++ other.graph, linked ++ other.linked)
+  }
+
+}
