@@ -103,33 +103,12 @@ class FutureStreamBuilder extends LazyLogging {
         state.merge(st)
     }
 
-  /** Removes Transform.nop nodes from the graph, connecting their inputs and outputs directly. */
-  private def removeNopNodes(graph: ModelGraph): ModelGraph = {
-    type Node = graph.NodeT
-
-    def isNop(node: Node): Boolean = node.value.value.isInstanceOf[NopTransform[_]]
-
-    def nonNopPred(node: Node): Node = if (isNop(node)) nonNopPred(node.diPredecessors.head) else node
-    def nonNopSucc(node: Node): Node = if (isNop(node)) nonNopSucc(node.diSuccessors.head) else node
-
-    val nopNodes = graph.nodes.filter(isNop)
-    val nonNopPreds = (for (node <- nopNodes) yield nonNopPred(node)).toSet
-
-    val newEdges =
-      for (pred <- nonNopPreds) yield {
-        val succ = nonNopSucc(pred.diSuccessors.head)
-        DiEdge(pred.value, succ.value)
-      }
-
-    graph -- nopNodes /* Also removes all their incident edges */ ++ newEdges
-  }
-
   /** Builds and starts a runnable FutureStream from the current graph. */
   def run()(implicit ec: ExecutionContext): RunningStream = {
     val st = mergeLinkedStates()
     validateBeforeBuilding(st)
 
-    val model = removeNopNodes(st.graph)
+    val model = st.graph
     logger.trace(s"Running stream:\n${describeGraph(model)}")
 
     // Declare here, set later, and graphOps will access it later from its lazy val
@@ -173,6 +152,7 @@ class FutureStreamBuilder extends LazyLogging {
           case input: DrivenSource[_] => (node, new DrivenSourceMachine(input, graphOps))
           case output: StreamConsumer[_, _] => (node, new ConsumerMachine(output, graphOps))
           case output: DelayedSink[_, _] => (node, new DelayedSinkMachine(output, graphOps))
+          case nop: NopTransform[_ ] => (node, new NopMachine(nop, graphOps))
           case transform: Transform[_, _] => (node, new TransformMachine(transform, graphOps))
           case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }

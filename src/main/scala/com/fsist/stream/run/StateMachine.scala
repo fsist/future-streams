@@ -366,7 +366,7 @@ private[run] object StateMachine extends LazyLogging {
       val onError = Func((th: Throwable) => substream.fail(th))
     }
 
-    val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
+    override val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
 
     // Copy of user function
     private val transformOnError = transform.onError
@@ -459,6 +459,19 @@ private[run] object StateMachine extends LazyLogging {
 
       Consumer(onNext composeFailure (graph.failGraph), onComplete ~> afterCompleting composeFailure (graph.failGraph))
     }
+  }
+
+  class NopMachine[T](val nop: NopTransform[T], val graph: GraphOps)
+                     (implicit val ec: ExecutionContext) extends StateMachineWithInput[T] with StateMachineWithOneOutput[T] {
+    override lazy val consumer: Consumer[T] = {
+      require(next.isDefined, "Graph must be fully linked before running")
+
+      next.get.consumer
+    }
+
+    override val running: RunningTransform[T, T] = RunningTransform(completionPromise.future, nop)
+
+    override def userOnError: Func[Throwable, Unit] = nop.onError
   }
 
   class MergerMachine[T](val merger: Merger[T], val graph: GraphOps)
