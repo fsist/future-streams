@@ -343,13 +343,16 @@ Stream components are defined as case classes, so they're immutable. In particul
 to one another. 
 
 The mutable state representing the structure of the stream model being built is stored in instances of the mutable
-(but concurrent-safe) class `FutureSreamBuilder`. This class also implements the `build` method that materializes a
-stream model.
+class `FutureSreamBuilder`. This class also implements the `build` method that materializes a stream model.
 
 Every stream component model case class has a parameter of type `FutureStreamBuilder`. Constructor methods take an implicit
 builder instance with a default value of `new FutureStreamBuilder`. Components belonging to different builders can be
 connected to one another. When a stream is materialized and run, it does not matter how components are distributed across
 different builders, and it doesn't matter which builder you use to call `build`.
+
+This class is **NOT concurrent-safe**. This means that while you can construct different stream components in parallel,
+you need to use different builders to do so (and not link them until later). Linking the components, and building
+the stream, must be carried out from a single thread.
 
 ## Differences from the previous version of this library
 

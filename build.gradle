@@ -28,7 +28,6 @@ dependencies {
   compile 'org.scala-lang:scala-compiler:2.11.4'
 
   compile 'com.typesafe.scala-logging:scala-logging_2.11:3.1.0'
-  compile 'com.assembla.scala-incubator:graph-core_2.11:1.9.0'
 
   testCompile 'ch.qos.logback:logback-classic:1.1.2'
   testCompile 'org.scalatest:scalatest_2.11:2.2.1'
