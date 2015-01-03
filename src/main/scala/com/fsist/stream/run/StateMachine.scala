@@ -349,12 +349,72 @@ private[run] object StateMachine extends LazyLogging {
         // If the substream hasn't been constructed yet, don't wait for it; the construction function
         // will fail it
         if (substream.isCompleted) substream.future.value.get.get.fail(e)
-      } 
+      }
     }
   }
 
   class TransformMachine[In, Out](val transform: Transform[In, Out], val graph: GraphOps)
                                  (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
+
+    override val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
+
+    // Copy of user function
+    override val userOnError: Func[Throwable, Unit] = transform.onError
+
+    override lazy val consumer: Consumer[In] = {
+      require(next.isDefined, "Graph must be fully linked before running")
+
+      // Acquire copies of next component's functions
+      val consumer = next.get.consumer
+      val consumerOnNext = consumer.onNext
+      val consumerOnComplete = consumer.onComplete
+
+      val afterCompleting = Func(completionPromise.success(())) ~> Func(())
+
+      val (onNext, onComplete) = transform match {
+        case NopTransform(builder) =>
+          throw new IllegalArgumentException("NopTransform nodes should be eliminated by the stream builder")
+
+        case sync: SyncSingleTransform[In, Out] =>
+          val onNext = sync ~> consumerOnNext
+          val onComplete = Func(sync.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case async: AsyncSingleTransform[In, Out] =>
+          val onNext = async ~> consumerOnNext
+          val onComplete = Func(async.onComplete()) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
+          val onNext = trOnNext ~> consumerOnNext
+          val onComplete = trOnComplete ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case sync: SyncMultiTransform[In, Out] =>
+          val onNext = sync ~> Func.foreach(consumerOnNext)
+          val onComplete = Func(sync.onComplete()) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case async: AsyncMultiTransform[In, Out] =>
+          val onNext = async ~> Func.foreach(consumerOnNext)
+          val onComplete = AsyncFunc.withEc((x: Unit) => (ec: ExecutionContext) => async.onComplete()(ec)) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
+          val onNext = trOnNext ~> Func.foreach(consumer.onNext)
+          val onComplete = trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
+          (onNext, onComplete)
+
+        case DelayedPipe(builder, future) =>
+          throw new IllegalArgumentException("DelayedPipe is implemented by DelayedPipeMachine")
+      }
+
+      Consumer(onNext composeFailure (graph.failGraph), onComplete ~> afterCompleting composeFailure (graph.failGraph))
+    }
+  }
+
+  class DelayedPipeMachine[In, Out](val transform: DelayedPipe[In, Out], val graph: GraphOps)
+                                   (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
 
     /** Runs the concrete Pipe produced by a DelayedPipe's future as a separate materialized stream,
       * interfacing with the main stream via a queue. */
@@ -413,70 +473,38 @@ private[run] object StateMachine extends LazyLogging {
 
       val afterCompleting = Func(completionPromise.success(())) ~> Func(())
 
-      val (onNext, onComplete) = transform match {
-        case NopTransform(builder) =>
-          throw new IllegalArgumentException("NopTransform nodes should be eliminated by the stream builder")
+      val (onNext, onComplete) = {
+        val DelayedPipe(builder, future) = transform
 
-        case sync: SyncSingleTransform[In, Out] =>
-          val onNext = sync ~> consumerOnNext
-          val onComplete = Func(sync.onComplete()) ~> consumerOnComplete
-          (onNext, onComplete)
+        future.value match {
+          case Some(Success(pipe)) =>
+            val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
+            substreamOnError = substream.onError
+            (substream.onNext, substream.onComplete)
 
-        case async: AsyncSingleTransform[In, Out] =>
-          val onNext = async ~> consumerOnNext
-          val onComplete = Func(async.onComplete()) ~> consumerOnComplete
-          (onNext, onComplete)
+          case Some(Failure(e)) => throw e
 
-        case SingleTransform(builder, trOnNext, trOnComplete, trOnError) =>
-          val onNext = trOnNext ~> consumerOnNext
-          val onComplete = trOnComplete ~> consumerOnComplete
-          (onNext, onComplete)
-
-        case sync: SyncMultiTransform[In, Out] =>
-          val onNext = sync ~> Func.foreach(consumerOnNext)
-          val onComplete = Func(sync.onComplete()) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
-          (onNext, onComplete)
-
-        case async: AsyncMultiTransform[In, Out] =>
-          val onNext = async ~> Func.foreach(consumerOnNext)
-          val onComplete = AsyncFunc.withEc((x: Unit) => (ec: ExecutionContext) => async.onComplete()(ec)) ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
-          (onNext, onComplete)
-
-        case MultiTransform(builder, trOnNext, trOnComplete, trOnError) =>
-          val onNext = trOnNext ~> Func.foreach(consumer.onNext)
-          val onComplete = trOnComplete ~> Func.foreach(consumer.onNext) ~> consumerOnComplete
-          (onNext, onComplete)
-
-        case DelayedPipe(builder, future) =>
-          future.value match {
-            case Some(Success(pipe)) =>
+          case None =>
+            val futureSubstream = new FastFuture(future map (pipe => {
               val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
               substreamOnError = substream.onError
-              (substream.onNext, substream.onComplete)
+              substream
+            }))
 
-            case Some(Failure(e)) => throw e
-
-            case None =>
-              val futureSubstream = new FastFuture(future map (pipe => {
-                val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
-                substreamOnError = substream.onError
-                substream
-              }))
-
-              val onNext = new AsyncFunc[In, Unit] {
-                override def apply(a: In)(implicit ec: ExecutionContext): Future[Unit] = {
-                  futureSubstream flatMap (_.onNext(a))
-                }
+            val onNext = new AsyncFunc[In, Unit] {
+              override def apply(a: In)(implicit ec: ExecutionContext): Future[Unit] = {
+                futureSubstream flatMap (_.onNext(a))
               }
+            }
 
-              val onComplete = new AsyncFunc[Unit, Unit] {
-                override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
-                  futureSubstream flatMap (_.onComplete(a))
-                }
+            val onComplete = new AsyncFunc[Unit, Unit] {
+              override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
+                futureSubstream flatMap (_.onComplete(a))
               }
+            }
 
-              (onNext, onComplete)
-          }
+            (onNext, onComplete)
+        }
       }
 
       Consumer(onNext composeFailure (graph.failGraph), onComplete ~> afterCompleting composeFailure (graph.failGraph))

@@ -122,6 +122,7 @@ class FutureStreamBuilder extends LazyLogging {
           case output: StreamConsumer[_, _] => (node, new ConsumerMachine(output, graphOps))
           case output: DelayedSink[_, _] => (node, new DelayedSinkMachine(output, graphOps))
           case nop: NopTransform[_] => (node, new NopMachine(nop, graphOps))
+          case pipe: DelayedPipe[_, _] => (node, new DelayedPipeMachine(pipe, graphOps))
           case transform: Transform[_, _] => (node, new TransformMachine(transform, graphOps))
           case other => throw new NotImplementedError(other.toString) // Can't really happen, this is to silence the error due to StreamComponentBase not being sealed
         }
