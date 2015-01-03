@@ -282,10 +282,10 @@ private[run] object StateMachine extends LazyLogging {
 
     override val running: RunningOutput[In, Res] = RunningOutput(resultPromise.future)
 
-    private val queue = new BoundedAsyncQueue[Option[In]](1)
-
-    @volatile private var substream: Option[RunningStream] = None
+    private val substream = Promise[RunningStream]()
     @volatile private var failed: Option[Throwable] = None
+    private val substreamOnNext = Promise[Func[In, Unit]]()
+    private val substreamOnComplete = Promise[Func[Unit, Unit]]()
 
     output.future.map(run(_)).recover {
       case NonFatal(e) => graph.failGraph(e)
@@ -293,8 +293,15 @@ private[run] object StateMachine extends LazyLogging {
 
     /** Actually connect the Sink once the future completes */
     private def run(sink: Sink[In, Res]): Unit = {
-      val sub = Source.from(queue).to(sink).build()
-      substream = Some(sub)
+      val driven = Source.driven[In]()
+
+      driven.aside map { consumer =>
+        substreamOnNext.success(consumer.onNext)
+        substreamOnComplete.success(consumer.onComplete)
+      }
+
+      val sub = driven.to(sink).build()
+      substream.success(sub)
 
       sub.completion recover {
         case NonFatal(e) => graph.failGraph(e)
@@ -309,25 +316,40 @@ private[run] object StateMachine extends LazyLogging {
     }
 
     lazy val consumer: Consumer[In] = {
-      val onNext = AsyncFunc((in: In) => queue.enqueue(Some(in)))
-      val onComplete = AsyncFunc(
-        // This is a convenient way of not trying to access `substream` before we may have initialized it
-        queue.enqueue(None) flatMap (_ => resultPromise.future) flatMap (_ => substream match {
-          case Some(sub) => sub.completion
-          case None => futureSuccess
-        })
-      )
+      val onNext = new AsyncFunc[In, Unit] {
+        override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = {
+          // Privilege performance of already-completed case
+          substreamOnNext.future.value match {
+            case Some(Success(onNext: SyncFunc[In, Unit])) => Future.successful(onNext(in))
+            case Some(Success(onNext: AsyncFunc[In, Unit])) => onNext(in)
+            case Some(Failure(e)) => throw e
+            case None => substreamOnNext.future map (_ => apply(in))
+          }
+        }
+      }
+
+      val onComplete = new AsyncFunc[Unit, Unit] {
+        override def apply(in: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
+          // Privilege performance of already-completed case
+          (substreamOnComplete.future.value match {
+            case Some(Success(onNext: SyncFunc[Unit, Unit])) => Future.successful(onNext(in))
+            case Some(Success(onNext: AsyncFunc[Unit, Unit])) => onNext(in)
+            case Some(Failure(e)) => throw e
+            case None => substreamOnNext.future map (_ => apply(in))
+          }) flatMap (_ => resultPromise.future) flatMap (_ => substream.future) flatMap (_.completion)
+        }
+      }
 
       Consumer(onNext, onComplete)
     }
 
-    override def userOnError: Func[Throwable, Unit] = (e: Throwable) => {
-      failed = Some(e)
-
-      substream match {
-        case Some(sub) => sub.fail(e)
-        case None =>
-      }
+    override def userOnError: Func[Throwable, Unit] = new SyncFunc[Throwable, Unit] {
+      override def apply(e: Throwable): Unit = {
+        failed = Some(e)
+        // If the substream hasn't been constructed yet, don't wait for it; the construction function
+        // will fail it
+        if (substream.isCompleted) substream.future.value.get.get.fail(e)
+      } 
     }
   }
 
