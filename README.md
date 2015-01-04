@@ -44,8 +44,7 @@ They are:
     which has a user-provided function with the signature `producer: Func[Unit, Out]`.
 2.  For `StreamOutput`, there is only one model, `SimpleOutput`, which has a user-provided function `onNext: Func[In, Unit]`.
 3.  For `Transform` there are three models. `SingleTransform` and `MultiTransform` correspond to `map` and `flatMap`
-    respectively. The special type `DelayedPipe` models a transform, or possibly a whole Pipe (a complex stream
-    with multiple internal components), which will only become available when some `Future[Pipe[In, Out]]` completes.
+    respectively. 
 4.  For `Connector` there are `Splitter` and `Scatterer`, which model different kinds of one-to-many connections,
     and `Merger` which models a many-to-one join.
 
