@@ -78,7 +78,7 @@ class FutureStreamBuilder extends LazyLogging {
   }
 
   private def gatherLinked(next: FutureStreamBuilder, seen: mutable.Set[FutureStreamBuilder]): Unit = {
-    if (! seen.contains(next)) {
+    if (!seen.contains(next)) {
       seen += next
       next.linked foreach {
         builder => gatherLinked(builder, seen)
@@ -203,10 +203,19 @@ class FutureStreamBuilder extends LazyLogging {
   /** Validate the current state of the `graph` to make sure it's fully connected, etc. before materializing it. */
   private def validateBeforeBuilding(): Unit = {
     try {
-      // If the graph isn't connected, some StateMachine will fail because its `next` field will be unset, so we don't
-      // need to check that here
-
       require(graph.isAcyclic, "Cycles are not supported")
+
+      val backward = graph.components.map {
+        case (k, Some(v)) => (v, k)
+        case (k, None) if !k.value.isInstanceOf[StreamOutput[_, _]] && !k.value.isInstanceOf[ConnectorInput[_]] =>
+          throw new IllegalArgumentException(s"Component ${k.value} not connected to a SinkComponent")
+        case (k, None) => (k, k) // Just to compile
+      }
+
+      for (key <- graph.components.keys;
+           component = key.value if !component.isInstanceOf[StreamInput[_]] && !component.isInstanceOf[ConnectorOutput[_]]) {
+        require(backward.contains(key), s"Component $component not connected to a SourceComponent")
+      }
     }
     catch {
       case e: IllegalArgumentException =>

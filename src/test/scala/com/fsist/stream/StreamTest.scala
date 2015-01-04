@@ -19,4 +19,12 @@ class StreamTest extends StreamTester {
 
     assert(result == (1 to 100).toList.map(_.toString))
   }
+
+  test("Stream validation: no missing sources") {
+    // This is a regression test
+
+    intercept[IllegalArgumentException] {
+      Transform.map((i: Int) => i.toString).toList.singleResult
+    }
+  }
 }
