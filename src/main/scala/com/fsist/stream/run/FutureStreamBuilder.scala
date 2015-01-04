@@ -4,8 +4,10 @@ import com.fsist.stream._
 import com.fsist.stream.run.StateMachine._
 import com.typesafe.scalalogging.LazyLogging
 
+import scala.annotation.tailrec
 import scala.concurrent.{Future, Promise, ExecutionContext}
 import scala.util.control.NonFatal
+import scala.collection.mutable
 
 import scala.language.implicitConversions
 
@@ -36,9 +38,8 @@ import scala.language.implicitConversions
   */
 class FutureStreamBuilder extends LazyLogging {
 
-  // When two builders are linked, their graphs are modified and their `graph` fields both point to the same StreamGraph
-  // instance. Needless to say, this is not concurrent-safe.
-  @volatile private var graph = new StreamGraph
+  private val graph = new StreamGraph
+  private val linked = mutable.HashSet[FutureStreamBuilder]()
 
   // == PUBLIC API ==
 
@@ -55,9 +56,9 @@ class FutureStreamBuilder extends LazyLogging {
   }
 
   private def link(other: FutureStreamBuilder): Unit = {
-    if (graph ne other.graph) {
-      graph.mergeFrom(other.graph)
-      other.graph = graph
+    if (this ne other) {
+      linked.add(other)
+      other.linked.add(this)
     }
   }
 
@@ -76,8 +77,24 @@ class FutureStreamBuilder extends LazyLogging {
     }
   }
 
+  private def gatherLinked(next: FutureStreamBuilder, seen: mutable.Set[FutureStreamBuilder]): Unit = {
+    if (! seen.contains(next)) {
+      seen += next
+      next.linked foreach {
+        builder => gatherLinked(builder, seen)
+      }
+    }
+  }
+
   /** Builds and starts a runnable FutureStream from the current graph. */
   def run()(implicit ec: ExecutionContext): RunningStream = {
+    val allLinked = mutable.HashSet[FutureStreamBuilder]()
+    gatherLinked(this, allLinked)
+
+    for (builder <- allLinked if builder ne this) {
+      graph.mergeFrom(builder.graph)
+    }
+
     validateBeforeBuilding()
 
     logger.trace(s"Running stream:\n$graph")
