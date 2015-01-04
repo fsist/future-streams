@@ -28,6 +28,17 @@ import scala.util.control.NonFatal
 /** A simplified StreamConsumer, without onError and without a Result. Exposed by each state machine with an input. */
 private[run] case class Consumer[-In](onNext: Func[In, Unit], onComplete: Func[Unit, Unit])
 
+private[run] sealed trait ConsumerProvider[In] {
+  def consumer: Consumer[In]
+}
+
+private[run] object ConsumerProvider {
+  def apply[T](machine: ConnectorMachine[T], inputIndex: Int): ConsumerProvider[T] =
+    new ConsumerProvider[T] {
+      override def consumer: Consumer[T] = machine.consumer(inputIndex)
+    }
+}
+
 private[run] sealed trait StateMachine extends LazyLogging {
   implicit def ec: ExecutionContext
 
@@ -90,27 +101,28 @@ private[run] sealed trait RunnableMachine extends StateMachine {
   def run(): Unit
 }
 
-private[run] sealed trait StateMachineWithInput[In] extends StateMachine {
-  def consumer: Consumer[In]
-}
-
-private[run] sealed trait ConnectorMachine[T] extends StateMachineWithInput[T] {
-  def running: RunningConnector[T]
-}
-
 private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
   type TOut = Out
-  // Defined to solve some type issues, see https://groups.google.com/forum/#!topic/scala-user/aN-o7ZaNwPo
-  var next: Option[StateMachineWithInput[TOut]] = None // Set to Some after construction
+
+  var next: Option[ConsumerProvider[TOut]] = None // Set to Some after construction
 }
 
-private[run] sealed trait ConnectorMachineWithOutputs[T] extends ConnectorMachine[T] {
+private[run] sealed trait ConnectorMachine[T] extends StateMachine {
   type TT = T
 
   def connector: Connector[T]
 
+  def running: RunningConnector[T]
+
   // Initialized by the stream builder before running
-  val consumers: ArrayBuffer[Option[StateMachineWithInput[T]]] = ArrayBuffer((1 to connector.outputs.size) map (_ => None): _*)
+  val consumers: ArrayBuffer[Option[ConsumerProvider[TT]]] = ArrayBuffer.fill(connector.outputs.size)(None)
+
+  def consumer(index: Int): Consumer[T]
+}
+
+/** A Connector which provides the same consumer on every input (or only has one input). */
+private[run] sealed trait ConnectorMachineWithUniformInput[T] extends ConnectorMachine[T] with ConsumerProvider[T] {
+  override def consumer(index: Int): Consumer[T] = consumer
 }
 
 private[run] object StateMachine extends LazyLogging {
@@ -244,7 +256,7 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class ConsumerMachine[In, Res](val output: StreamConsumer[In, Res], val graph: GraphOps)
-                                (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
+                                (implicit val ec: ExecutionContext) extends StateMachine with ConsumerProvider[In] {
     val resultPromise = Promise[Res]()
     output.futureResultPromise.completeWith(resultPromise.future)
 
@@ -257,7 +269,7 @@ private[run] object StateMachine extends LazyLogging {
     // Acquire copies of user functions
     val (userOnNext, userOnComplete, userOnError) = (output.onNext, output.onComplete, output.onError)
 
-    lazy val consumer: Consumer[In] = {
+    def consumer: Consumer[In] = {
       // From the user's perspective we must guarantee no calls to onNext/onComplete after onNext fails once.
       // We rely on the previous component not calling our own onNext/onComplete if we fail the graph before returning.
 
@@ -272,7 +284,7 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class DelayedSinkMachine[In, Res](val output: DelayedSink[In, Res], val graph: GraphOps)
-                                   (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] {
+                                   (implicit val ec: ExecutionContext) extends StateMachine with ConsumerProvider[In] {
     val resultPromise = Promise[Res]()
     output.futureResultPromise.completeWith(resultPromise.future)
 
@@ -315,7 +327,7 @@ private[run] object StateMachine extends LazyLogging {
       }
     }
 
-    lazy val consumer: Consumer[In] = {
+    def consumer: Consumer[In] = {
       val onNext = new AsyncFunc[In, Unit] {
         override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = {
           // Privilege performance of already-completed case
@@ -354,14 +366,14 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class TransformMachine[In, Out](val transform: Transform[In, Out], val graph: GraphOps)
-                                 (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
+                                 (implicit val ec: ExecutionContext) extends ConsumerProvider[In] with StateMachineWithOneOutput[Out] {
 
     override val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
 
     // Copy of user function
     override val userOnError: Func[Throwable, Unit] = transform.onError
 
-    override lazy val consumer: Consumer[In] = {
+    override def consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of next component's functions
@@ -414,7 +426,7 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class DelayedPipeMachine[In, Out](val transform: DelayedPipe[In, Out], val graph: GraphOps)
-                                   (implicit val ec: ExecutionContext) extends StateMachineWithInput[In] with StateMachineWithOneOutput[Out] {
+                                   (implicit val ec: ExecutionContext) extends ConsumerProvider[In] with StateMachineWithOneOutput[Out] {
 
     /** Runs the concrete Pipe produced by a DelayedPipe's future as a separate materialized stream,
       * interfacing with the main stream via a queue. */
@@ -463,7 +475,7 @@ private[run] object StateMachine extends LazyLogging {
 
     @volatile private var substreamOnError: SyncFunc[Throwable, Unit] = Func.nop
 
-    override lazy val consumer: Consumer[In] = {
+    override def consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of next component's functions
@@ -512,8 +524,8 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class NopMachine[T](val nop: NopTransform[T], val graph: GraphOps)
-                     (implicit val ec: ExecutionContext) extends StateMachineWithInput[T] with StateMachineWithOneOutput[T] {
-    override lazy val consumer: Consumer[T] = {
+                     (implicit val ec: ExecutionContext) extends ConsumerProvider[T] with StateMachineWithOneOutput[T] {
+    override def consumer: Consumer[T] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       next.get.consumer
@@ -524,17 +536,19 @@ private[run] object StateMachine extends LazyLogging {
     override def userOnError: Func[Throwable, Unit] = nop.onError
   }
 
-  class MergerMachine[T](val merger: Merger[T], val graph: GraphOps)
-                        (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] with RunnableMachine {
-    override val running: RunningConnector[T] = RunningConnector(completionPromise.future, merger)
+  class MergerMachine[T](val connector: Merger[T], val graph: GraphOps)
+                        (implicit val ec: ExecutionContext)
+    extends ConnectorMachineWithUniformInput[T] with StateMachineWithOneOutput[T] with RunnableMachine {
+
+    override val running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
 
     // We enqueue a None each time one input sees onComplete. The dequeuer, in `run`, counts the None elements
     // and emits its own onComplete when one None has been seen for each input.
     private val queue = new BoundedAsyncQueue[Option[T]](1)
 
     // The same consumer is used for all inputs, and is concurrent-safe.
-    override lazy val consumer: Consumer[T] = {
-      require(next.isDefined, "Graph must be fully linked before running")
+    override def consumer: Consumer[T] = {
+      require(consumers(0).isDefined, "Graph must be fully linked before running")
 
       // Assume queue.enqueue can't fail and skip the recovery stuff
       val onNext = AsyncFunc[T, Unit](t => queue.enqueue(Some(t)))
@@ -550,8 +564,10 @@ private[run] object StateMachine extends LazyLogging {
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
     override def run(): Unit = {
+      require(consumers(0).isDefined, s"Graph must be fully linked before running")
+
       // Acquire copies of user functions
-      val consumer = next.get.consumer
+      val consumer = consumers(0).get.consumer
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
@@ -571,7 +587,7 @@ private[run] object StateMachine extends LazyLogging {
             }) flatMap (_ => loopStep())
           case None =>
             val counted = inputsTerminated.incrementAndGet()
-            if (counted == merger.inputCount) {
+            if (counted == connector.inputCount) {
               fullOnComplete match {
                 case syncf: SyncFunc[Unit, Unit] =>
                   syncf(())
@@ -596,12 +612,12 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class SplitterMachine[T](val connector: Splitter[T], val graph: GraphOps)
-                          (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
+                          (implicit val ec: ExecutionContext) extends ConnectorMachineWithUniformInput[T] {
     override def running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
-    override lazy val consumer: Consumer[T] = {
+    override def consumer: Consumer[T] = {
       val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
 
       def chooseOutputs(indexes: BitSet): Vector[Func[T, _]] = {
@@ -631,12 +647,12 @@ private[run] object StateMachine extends LazyLogging {
   }
 
   class ScattererMachine[T](val connector: Scatterer[T], val graph: GraphOps)
-                           (implicit val ec: ExecutionContext) extends ConnectorMachineWithOutputs[T] {
+                           (implicit val ec: ExecutionContext) extends ConnectorMachineWithUniformInput[T] {
     override def running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
-    override lazy val consumer: Consumer[T] = {
+    override def consumer: Consumer[T] = {
       val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
 
       // Naive implementation, could probably be optimized
@@ -677,5 +693,39 @@ private[run] object StateMachine extends LazyLogging {
     }
   }
 
+  class ConcatenatorMachine[T](val connector: Concatenator[T], val graph: GraphOps)
+                              (implicit val ec: ExecutionContext) extends ConnectorMachine[T] with StateMachineWithOneOutput[T] {
+    override def running: RunningConnector[T] = RunningConnector(completionPromise.future, connector)
+
+    private val promises = Vector.fill(connector.inputCount)(Promise[Unit]())
+    promises(0).success(())
+
+    override def consumer(index: Int): Consumer[T] = {
+      require(consumers(0).isDefined, "Graph must be fully linked before running")
+
+      val Consumer(userOnNext, userOnComplete) = consumers(0).get.consumer
+
+      val future = promises(index).future
+      val nextPromise = if (index < promises.size - 1) promises(index + 1) else promises(0)
+
+      val waitForFuture = new AsyncFunc[T, T] {
+        override def apply(a: T)(implicit ec: ExecutionContext): Future[T] = new FastFuture(future).map(_ => a)
+      }
+
+      val onNext = waitForFuture ~> userOnNext
+      val onComplete = AsyncFunc((_: Unit) => future) ~> Func({
+        nextPromise.trySuccess(())
+        ()
+      })
+
+      val onComplete2 = if (index < promises.size - 1) onComplete else {
+        onComplete ~> userOnComplete
+      }
+
+      Consumer(onNext, onComplete2)
+    }
+
+    override val userOnError: Func[Throwable, Unit] = (e: Throwable) => promises.foreach(_.tryFailure(e))
+  }
 }
 

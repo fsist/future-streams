@@ -313,45 +313,15 @@ object Source {
 
   /** Merges data from several inputs to one output in order, taking all data from the first input, then all data from the
     * second output, and so on. */
-  def concat[Out](sources: Seq[SourceComponent[Out]]): SourceComponent[Out] = {
+  def concat[Out](sources: collection.immutable.Seq[SourceComponent[Out]]): SourceComponent[Out] = {
     if (sources.isEmpty) Source.empty[Out]
     else if (sources.size == 1) sources(0)
     else {
       implicit val builder = sources(0).builder
 
-      // This is a quick and dirty, inefficient implementation. The Merger is needed simply to trick the builder
-      // into thinking all components are connected.
-      // What's really needed is a Core implementation that lets us feed data directly downstream.
-
-      val count = sources.size
-      val merger = Merger[Out](count)
-      val promises = Vector.fill(count)(Promise[Unit]())
-
-      promises(0).success(())
-
-      def onNext(index: Int) = {
-        val future = new FastFuture(promises(index).future)
-        new AsyncFunc[Out, Out] {
-          override def apply(input: Out)(implicit ec: ExecutionContext): Future[Out] = {
-            future.map(_ => input)
-          }
-        }
-      }
-
-      def onComplete(index: Int) = if (index == count - 1) Func.nop
-      else {
-        val promise = promises(index + 1)
-        Func {
-          promise.success(())
-          ()
-        }
-      }
-
-      for ((source, index) <- sources.zipWithIndex) {
-        source.mapFunc(onNext(index), onComplete(index)).connect(merger.inputs(index))
-      }
-
-      merger.output
+      val concatenator = Connector.concatenate[Out](sources.size)
+      concatenator.connectInputs(sources)
+      concatenator.output
     }
   }
 }

@@ -130,6 +130,18 @@ final case class Merger[T](inputCount: Int)
   def output = outputs(0)
 }
 
+/** Concatenates several inputs to a single output.
+  */
+final case class Concatenator[T](inputCount: Int)
+                                (implicit val builder: FutureStreamBuilder) extends Connector[T] {
+  require(inputCount > 0, "Must have at least one input")
+
+  val inputs = for (index <- 0 until inputCount) yield ConnectorInput(this, index)
+  val outputs = Vector(ConnectorOutput(this, 0))
+
+  def output = outputs(0)
+}
+
 object Connector {
   /** @see [[com.fsist.stream.Splitter]]*/
   def split[T](outputCount: Int, outputChooser: Func[T, BitSet])
@@ -164,5 +176,8 @@ object Connector {
     */
   def scatter[T](outputCount: Int)
                 (implicit builder: FutureStreamBuilder): Scatterer[T] = Scatterer(outputCount)
+
+  def concatenate[T](inputCount: Int)
+                    (implicit builder: FutureStreamBuilder): Concatenator[T] = Concatenator(inputCount)
 }
 

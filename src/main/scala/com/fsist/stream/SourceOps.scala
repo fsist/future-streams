@@ -418,5 +418,5 @@ trait SourceOps[+Out] {
     *
     * @see [[com.fsist.stream.Source.concat]] */
   def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
-    Source.concat(sourceComponent +: sources)
+    Source.concat(sourceComponent +: sources.toIndexedSeq)
 }

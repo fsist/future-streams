@@ -32,3 +32,4 @@ TODOs:
 - Document DrivenSource in README
 - Rewrite DelayedPipeMachine to use DrivenSource like DelayedSinkMachine does
 - Rewrite Source.concat to be more efficient, even if it takes a new state machine
+- Some state machines STILL don't complete their completionPromise

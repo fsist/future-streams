@@ -127,6 +127,7 @@ class FutureStreamBuilder extends LazyLogging {
         case node@ConnectorId(merger: Merger[_]) => (node, new MergerMachine(merger, graphOps))
         case node@ConnectorId(splitter: Splitter[_]) => (node, new SplitterMachine(splitter, graphOps))
         case node@ConnectorId(scatterer: Scatterer[_]) => (node, new ScattererMachine(scatterer, graphOps))
+        case node@ConnectorId(concatenator: Concatenator[_]) => (node, new ConcatenatorMachine(concatenator, graphOps))
       }).toMap
 
     // All component types other than connectors
@@ -160,28 +161,38 @@ class FutureStreamBuilder extends LazyLogging {
     stateMachinesVector = allMachines.values.toVector
 
     // Only the sink-like machines
-    val sinkMachines: Map[ComponentId, StateMachineWithInput[_]] =
+    val sinkMachines: Map[ComponentId, ConsumerProvider[_]] =
       allMachines.filter {
-        case (component, machine) => machine.isInstanceOf[StateMachineWithInput[_]]
-      }.mapValues(_.asInstanceOf[StateMachineWithInput[_]])
+        case (component, machine) => machine.isInstanceOf[ConsumerProvider[_]]
+      }.mapValues(_.asInstanceOf[ConsumerProvider[_]])
 
     // Connect the state machines to one another
     for ((source, Some(sink)) <- graph.components) {
+
+      val consumerProvider = sink.value match {
+        case connectorInput: ConnectorInput[_] => connectorMachines(connectorInput.connector) match {
+          case machine: ConnectorMachine[_] => ConsumerProvider(machine, connectorInput.index)
+        }
+        case component: StreamComponent => componentMachines(component) match {
+          case machine: ConsumerProvider[_] => machine: ConsumerProvider[_]
+
+          case _: ConnectorMachine[_] => throw new IllegalStateException("A ConnectorMachine is in the componentMachines map")
+          case _: DrivenSourceMachine[_] | _: DelayedSourceMachine[_] | _: ProducerMachine[_] => throw new IllegalStateException("Source machine appears as a Sink")
+        }
+      }
+
       source.value match {
-        // If output.connector.outputs.size == 1, it will be handled as a StateMachineWithOneOutput below
-        case output: ConnectorOutput[_] if output.connector.outputs.size > 1 =>
-          allMachines(source) match {
-            case machine: ConnectorMachineWithOutputs[_] =>
-              val outputIndex = output.connector.outputs.indexOf(output)
-              val outputMachine = sinkMachines(sink).asInstanceOf[StateMachineWithInput[machine.TT]]
-              machine.consumers(outputIndex) = Some(outputMachine)
-            case other => throw new IllegalArgumentException(s"No others allowed")
-          }
-        case _ =>
-          allMachines(source) match {
+        case output: ConnectorOutput[_] =>
+          val machine = connectorMachines(output.connector)
+          machine.consumers(output.index) = Some(consumerProvider.asInstanceOf[ConsumerProvider[machine.TT]])
+
+        case component: StreamComponent =>
+          componentMachines(component) match {
             case machine: StateMachineWithOneOutput[_] =>
-              machine.next = Some(sinkMachines(sink).asInstanceOf[StateMachineWithInput[machine.TOut]])
-            case other => throw new IllegalArgumentException(s"No others allowed")
+              machine.next = Some(consumerProvider.asInstanceOf[ConsumerProvider[machine.TOut]])
+
+            case _: ConsumerMachine[_ , _] | _: DelayedSinkMachine[_, _] => throw new IllegalStateException("Sink machine appears as a Source")
+            case _: ConnectorMachine[_] => throw new IllegalStateException("A ConnectorMachine is in the componentMachines map")
           }
       }
     }

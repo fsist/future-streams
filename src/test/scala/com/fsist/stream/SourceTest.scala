@@ -121,7 +121,7 @@ class SourceTest extends FunSuite with StreamTester {
     val data = 1 to 5
 
     for (count <- 0 to 5) {
-      val sources = Seq.fill(count)(Source.from(data))
+      val sources = List.fill(count)(Source.from(data))
       val source = Source.concat(sources)
       val result = source.toList.singleResult().futureValue.sorted
 
