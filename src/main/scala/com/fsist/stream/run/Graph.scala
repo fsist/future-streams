@@ -21,13 +21,11 @@ case class ComponentId(value: StreamComponent) {
 
   override def hashCode(): Int = System.identityHashCode(value)
 
-  override lazy val toString: String = ComponentId.counter.incrementAndGet().toString
+  override lazy val toString: String = System.identityHashCode(value).toString
 }
 
 object ComponentId {
   implicit def make(value: StreamComponent): ComponentId = ComponentId(value)
-
-  private val counter = new AtomicLong()
 }
 
 /** Wraps each Connector when used as a key in a Set or Map.
@@ -39,6 +37,8 @@ case class ConnectorId[T](value: Connector[T]) {
     (other != null) && other.isInstanceOf[ConnectorId[_]] && (value eq other.asInstanceOf[ConnectorId[_]].value)
 
   override def hashCode(): Int = System.identityHashCode(value)
+
+  override lazy val toString: String = System.identityHashCode(value).toString
 }
 
 object ConnectorId {
@@ -112,11 +112,13 @@ private[run] class StreamGraph {
   override def toString(): String = {
     val sb = new mutable.StringBuilder(100)
 
-    sb ++= s"Nodes: ${components.keys.mkString(", ")}\n"
+    val ids = components.keys.zipWithIndex.toMap
+
+    sb ++= s"Nodes: ${components.keys.map(ids).mkString(", ")}\n"
 
     sb ++= s"Edges: ${
       ((for ((source, Some(sink)) <- components) yield {
-        s"$source ~> $sink"
+        s"${ids(source)} ~> ${ids(sink)}"
       }) ++
         (for (node <- components.keys if node.value.isInstanceOf[ConnectorInput[_]];
               input = node.value.asInstanceOf[ConnectorInput[_]];
@@ -124,14 +126,14 @@ private[run] class StreamGraph {
           val inputComponent = components.keySet.find(_.value eq input).get
           val outputComponent = components.keySet.find(_.value eq output).get
 
-          s"$inputComponent ~> $outputComponent"
+          s"${ids(inputComponent)} ~> ${ids(outputComponent)}"
         })).mkString(", ")
     }\n"
 
     sb ++= s"Where:\n"
 
     for (node <- components.keys) {
-      sb ++= s"$node\t= ${node.value}\n"
+      sb ++= s"${ids(node)}\t= ${node.value}\n"
     }
 
     sb.result()
