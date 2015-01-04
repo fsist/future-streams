@@ -208,12 +208,12 @@ trait SourceOps[+Out] {
 
   // Transform.prepend
 
-  def prependThese[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
+  def prepend[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
     val tr = Transform.prepend[Super](elems)
     sourceComponent.transform(tr)
   }
 
-  def prepend[Super >: Out](elems: Super*): Transform[_ <: Out, Super] = {
+  def prependThese[Super >: Out](elems: Super*): Transform[_ <: Out, Super] = {
     val tr = Transform.prepend[Super](elems)
     sourceComponent.transform(tr)
   }
