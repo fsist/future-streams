@@ -313,7 +313,7 @@ object Source {
 
   /** Merges data from several inputs to one output in order, taking all data from the first input, then all data from the
     * second output, and so on. */
-  def concat[Out](sources: collection.immutable.Seq[SourceComponent[Out]]): SourceComponent[Out] = {
+  def concat[Out](sources: Seq[SourceComponent[Out]]): SourceComponent[Out] = {
     if (sources.isEmpty) Source.empty[Out]
     else if (sources.size == 1) sources(0)
     else {
