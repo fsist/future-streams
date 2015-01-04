@@ -13,7 +13,7 @@ import scala.language.implicitConversions
 // to make stream building fast.
 
 /** Wraps each stream component for placement in the graph, and makes sure to compare nodes by identity.
-  * Otherwise StreamComponent case classes that compare equal (e.g. two Merger(3) nodes) would be confused.
+  * Otherwise StreamComponent case classes that compare equal would be confused.
   */
 case class ComponentId(value: StreamComponent) {
   override def equals(other: Any): Boolean =
