@@ -417,6 +417,7 @@ object Transform {
       }
 
       override def onComplete(): Unit = promise.trySuccess(None)
+
       override def onError(e: Throwable): Unit = promise.tryFailure(e)
     }
 
@@ -460,12 +461,20 @@ object Transform {
     * Do not confuse with Sink.foreach.
     */
   def foreach[Elem](func: Func[Elem, Unit])
-                       (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] = new SyncSingleTransform[Elem, Elem] {
-    override def onNext(in: Elem): Elem = {
-      func.apply(in)
-      in
+                   (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] =
+    func match {
+      case syncf: SyncFunc[Elem, Unit] =>
+        new SyncSingleTransform[Elem, Elem] {
+          override def onNext(in: Elem): Elem = {
+            syncf.apply(in)
+            in
+          }
+        }
+      case asyncf: AsyncFunc[Elem, Unit] =>
+        new AsyncSingleTransform[Elem, Elem] {
+          override def onNext(in: Elem)(implicit ec: ExecutionContext): Future[Elem] =
+            new FastFuture(asyncf(in)) map (_ => in)
+        }
     }
-  }
-
 }
 
