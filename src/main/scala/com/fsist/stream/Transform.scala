@@ -253,6 +253,8 @@ object Transform {
     *
     * This works both if the input type Coll is generic (Coll[Elem]), like the standard scala collections, and if it
     * isn't, like akka.util.ByteString.
+    *
+    * WARNING: this doesn't stop upstream from emitting more elements, it just discards them.
     */
   def takeElements[Elem, Coll](count: Long)
                               (implicit ev: Coll <:< Traversable[Elem],
@@ -415,6 +417,7 @@ object Transform {
       }
 
       override def onComplete(): Unit = promise.trySuccess(None)
+      override def onError(e: Throwable): Unit = promise.tryFailure(e)
     }
 
   /** Append the given elements to those in the stream. */
