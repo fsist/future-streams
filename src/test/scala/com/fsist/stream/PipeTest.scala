@@ -42,7 +42,7 @@ class PipeTest extends FunSuite with StreamTester {
 
     def pipe = tr.pipe(tr).pipe(tr)
 
-    val result = Source.from(data).through(pipe).collect[List]().singleResult().futureValue
+    val result = Source.from(data).to(pipe).collect[List]().singleResult().futureValue
 
     assert(result == data.map(_ + 3))
   }
@@ -50,7 +50,7 @@ class PipeTest extends FunSuite with StreamTester {
   test("DelayedPipe") {
     val data = 1 to 10
     val promise = Promise[Pipe[Int, Int]]()
-    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+    val stream = Source.from(data).to(Pipe.flatten(promise.future)).toList.singleResult()
 
     awaitTimeout(stream, "Stream doesn't complete while waiting for delayed pipe")(impatience)
 
@@ -69,7 +69,7 @@ class PipeTest extends FunSuite with StreamTester {
 
     promise.success(pipe)
 
-    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+    val stream = Source.from(data).to(Pipe.flatten(promise.future)).toList.singleResult()
 
     assert(stream.futureValue == data.map(_ - 1))
   }
@@ -77,7 +77,7 @@ class PipeTest extends FunSuite with StreamTester {
   test("DelayedPipe (when the Future fails)") {
     val data = 1 to 10
     val promise = Promise[Pipe[Int, Int]]()
-    val stream = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+    val stream = Source.from(data).to(Pipe.flatten(promise.future)).toList.singleResult()
 
     val error = new IllegalArgumentException("test")
     promise.failure(error)
@@ -88,7 +88,7 @@ class PipeTest extends FunSuite with StreamTester {
   test("Double-delayed pipe") {
     val data = 1 to 10
     val promise = Promise[Pipe[Int, Int]]()
-    val result = Source.from(data).through(Pipe.flatten(promise.future)).toList.singleResult()
+    val result = Source.from(data).to(Pipe.flatten(promise.future)).toList.singleResult()
 
     val promise2 = Promise[Pipe[Int, Int]]()
     promise.success(Pipe.flatten(promise2.future))

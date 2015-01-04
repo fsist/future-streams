@@ -30,3 +30,5 @@ TODOs:
 - Add overloads taking simple functions, identical to those in SourceOps, to Source/Sink/Transform constructors.
 - Add detailed guide for all SourceOps and constructors to README, with examples
 - Document DrivenSource in README
+- Rewrite DelayedPipeMachine to use DrivenSource like DelayedSinkMachine does
+- Rewrite Source.concat to be more efficient, even if it takes a new state machine

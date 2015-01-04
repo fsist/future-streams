@@ -422,7 +422,7 @@ private[run] object StateMachine extends LazyLogging {
                                   (implicit ec: ExecutionContext) {
       val inputQueue = new BoundedAsyncQueue[Option[In]](1)
 
-      val substream = Source.from(inputQueue).through(pipe).foreachFunc(
+      val substream = Source.from(inputQueue).to(pipe).foreachFunc(
         consumerOnNext,
         consumerOnComplete,
         Func(e => graph.failGraph(e)) // Fail the parent stream

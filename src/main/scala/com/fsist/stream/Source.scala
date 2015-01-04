@@ -23,16 +23,16 @@ sealed trait SourceComponent[+Out] extends StreamComponentBase with SourceOps[Ou
   /** Irreversibly join this source with that sink. */
   def to(sink: SinkComponent[Out]): sink.type = connect(sink)
 
+  /** Irreversibly join this source with that pipe's sink. */
+  def to[Next](pipe: Pipe[Out, Next]): pipe.type = {
+    connect(pipe.sink)
+    pipe
+  }
+
   /** Irreversibly join this source with that sink. */
   def to[Res](sink: Sink[Out, Res]): sink.type = {
     connect(sink.sinkComponent)
     sink
-  }
-
-  /** Irreversibly join this source with that pipe and return a new Pipe containing both. */
-  def through[Next](pipe: Pipe[Out, Next]): pipe.type = {
-    connect(pipe.sink)
-    pipe
   }
 
   /** Irreversibly join this source with that transform. */
