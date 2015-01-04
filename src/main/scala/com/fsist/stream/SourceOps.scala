@@ -201,9 +201,19 @@ trait SourceOps[+Out] {
     sourceComponent.transform(tr)
   }
 
+  def appendThese[Super >: Out](elems: Super*): Transform[_ <: Out, Super] = {
+    val tr = Transform.append[Super](elems)
+    sourceComponent.transform(tr)
+  }
+
   // Transform.prepend
 
-  def prepend[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
+  def prependThese[Super >: Out](elems: Iterable[Super]): Transform[_ <: Out, Super] = {
+    val tr = Transform.prepend[Super](elems)
+    sourceComponent.transform(tr)
+  }
+
+  def prepend[Super >: Out](elems: Super*): Transform[_ <: Out, Super] = {
     val tr = Transform.prepend[Super](elems)
     sourceComponent.transform(tr)
   }
@@ -406,7 +416,7 @@ trait SourceOps[+Out] {
     *
     * This is named concatWith and not simply Concat because SourceOps.concat refers to the unrelated Transform.concat.
     *
-    * @see [[com.fsist.stream.Source.concat]]*/
+    * @see [[com.fsist.stream.Source.concat]] */
   def concatWith[Super >: Out](sources: SourceComponent[Super]*): SourceComponent[Super] =
     Source.concat(sourceComponent +: sources)
 }
