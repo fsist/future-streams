@@ -39,11 +39,11 @@ trait FutureTester extends Futures with ScalaFutures with Assertions with Matche
     catch {
       case e: E if exceptionExpectation.isDefined =>
         assert(exceptionExpectation.get(e), clue + s"(exception type is right but content is not as expected: $e)")
-      case e: E => return //Success
+      case e: E => //Success
       case failed: TestFailedException => failed.cause match {
         case Some(cause: E) if exceptionExpectation.isDefined =>
           assert(exceptionExpectation.get(cause), clue + s"(exception type is right but content is not as expected: $cause)")
-        case Some(cause: E) => return // Success
+        case Some(cause: E) => // Success
         case _ => throw failed
       }
     }
