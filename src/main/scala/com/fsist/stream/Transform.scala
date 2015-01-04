@@ -451,5 +451,17 @@ object Transform {
   def onComplete[Elem](onComplete: Func[Unit, Unit])
                       (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] =
     SingleTransform(builder, Func.pass, onComplete, Func.nop)
+
+  /** Applies `func` to each element passed, and then produces the unmodified element.
+    *
+    * Do not confuse with Sink.foreach.
+    */
+  def foreach[Elem](func: Func[Elem, Unit])
+                       (implicit builder: FutureStreamBuilder): Transform[Elem, Elem] = new SyncSingleTransform[Elem, Elem] {
+    override def onNext(in: Elem): Elem = {
+      func.apply(in)
+      in
+    }
+  }
 }
 

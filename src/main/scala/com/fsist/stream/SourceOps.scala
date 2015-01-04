@@ -242,6 +242,23 @@ trait SourceOps[+Out] {
     sourceComponent.transform(tr)
   }
 
+  // Transform.foreach
+
+  def foreachTr(func: Out => Unit): Transform[_ <: Out, Out] = {
+    val tr = Transform.foreach[Out](func)
+    sourceComponent.transform(tr)
+  }
+
+  def foreachTrAsync(func: Out => Future[Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.foreach[Out](AsyncFunc(func))
+    sourceComponent.transform(tr)
+  }
+
+  def foreachTrFunc(func: Func[Out, Unit]): Transform[_ <: Out, Out] = {
+    val tr = Transform.foreach[Out](func)
+    sourceComponent.transform(tr)
+  }
+
   // ===================================================================================================================
   // Sink
   // ===================================================================================================================
