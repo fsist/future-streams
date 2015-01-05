@@ -1,5 +1,7 @@
 package com.fsist.stream.run
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 import com.fsist.stream._
 import com.fsist.stream.run.StateMachine._
 import com.typesafe.scalalogging.LazyLogging
@@ -40,6 +42,8 @@ class FutureStreamBuilder extends LazyLogging {
 
   private val graph = new StreamGraph
   private val linked = mutable.HashSet[FutureStreamBuilder]()
+
+  private val ran = new AtomicBoolean()
 
   // == PUBLIC API ==
 
@@ -88,10 +92,13 @@ class FutureStreamBuilder extends LazyLogging {
 
   /** Builds and starts a runnable FutureStream from the current graph. */
   def run()(implicit ec: ExecutionContext): RunningStream = {
+    require(! ran.getAndSet(true), "Must not run() the same stream twice")
+
     val allLinked = mutable.HashSet[FutureStreamBuilder]()
     gatherLinked(this, allLinked)
 
     for (builder <- allLinked if builder ne this) {
+      require(! builder.ran.getAndSet(true), "Must not run() the same stream twice")
       graph.mergeFrom(builder.graph)
     }
 
