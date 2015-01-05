@@ -179,7 +179,7 @@ object Func extends LazyLogging {
             loopStep(a, iter)
           case asyncf: AsyncFunc[A, _] =>
             val fut = asyncf(a)
-            if (fut.isCompleted) loopStep(a, iter)
+            if (fut.isCompleted && fut.value.get.isSuccess) loopStep(a, iter)
             else fut.flatMap(_ => loop(a, iter))
         }
 
