@@ -191,7 +191,7 @@ class FutureStreamBuilder extends LazyLogging {
       source.value match {
         case output: ConnectorOutput[_] =>
           val machine = connectorMachines(output.connector)
-          machine.consumers(output.index) = Some(consumerProvider.asInstanceOf[ConsumerProvider[machine.TT]])
+          machine.nexts(output.index) = Some(consumerProvider.asInstanceOf[ConsumerProvider[machine.TT]])
 
         case component: StreamComponent =>
           componentMachines(component) match {

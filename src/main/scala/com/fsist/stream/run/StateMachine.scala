@@ -9,6 +9,7 @@ import com.fsist.util.concurrent.FutureOps._
 import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.tailrec
+import scala.collection.LinearSeq
 import scala.collection.immutable.BitSet
 import scala.collection.mutable.ArrayBuffer
 import scala.concurrent.{Future, Promise, ExecutionContext}
@@ -35,7 +36,7 @@ private[run] sealed trait ConsumerProvider[In] {
 private[run] object ConsumerProvider {
   def apply[T](machine: ConnectorMachine[T], inputIndex: Int): ConsumerProvider[T] =
     new ConsumerProvider[T] {
-      override def consumer: Consumer[T] = machine.consumer(inputIndex)
+      override lazy val consumer: Consumer[T] = machine.consumer(inputIndex)
     }
 }
 
@@ -104,7 +105,8 @@ private[run] sealed trait RunnableMachine extends StateMachine {
 private[run] sealed trait StateMachineWithOneOutput[Out] extends StateMachine {
   type TOut = Out
 
-  var next: Option[ConsumerProvider[TOut]] = None // Set to Some after construction
+  // Downstream component. Initialized by the stream builder before running
+  var next: Option[ConsumerProvider[TOut]] = None
 }
 
 private[run] sealed trait ConnectorMachine[T] extends StateMachine {
@@ -114,15 +116,17 @@ private[run] sealed trait ConnectorMachine[T] extends StateMachine {
 
   def running: RunningConnector[T]
 
-  // Initialized by the stream builder before running
-  val consumers: ArrayBuffer[Option[ConsumerProvider[TT]]] = ArrayBuffer.fill(connector.outputs.size)(None)
+  // Downstream components. Initialized by the stream builder before running
+  val nexts: ArrayBuffer[Option[ConsumerProvider[TT]]] = ArrayBuffer.fill(connector.outputs.size)(None)
 
-  def consumer(index: Int): Consumer[T]
+  def consumers: IndexedSeq[Consumer[T]]
+
+  def consumer(index: Int): Consumer[T] = consumers(index)
 }
 
 /** A Connector which provides the same consumer on every input (or only has one input). */
 private[run] sealed trait ConnectorMachineWithUniformInput[T] extends ConnectorMachine[T] with ConsumerProvider[T] {
-  override def consumer(index: Int): Consumer[T] = consumer
+  override def consumers: IndexedSeq[Consumer[T]] = Vector.fill(connector.inputs.size)(consumer)
 }
 
 private[run] object StateMachine extends LazyLogging {
@@ -305,7 +309,7 @@ private[run] object StateMachine extends LazyLogging {
 
     /** Actually connect the Sink once the future completes */
     private def run(sink: Sink[In, Res]): Unit = {
-      val driven = Source.driven[In]()
+      val driven = Source.driven[In]()(sink.builder)
 
       driven.aside map { consumer =>
         substreamOnNext.success(consumer.onNext)
@@ -373,7 +377,7 @@ private[run] object StateMachine extends LazyLogging {
     // Copy of user function
     override val userOnError: Func[Throwable, Unit] = transform.onError
 
-    override def consumer: Consumer[In] = {
+    override lazy val consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of next component's functions
@@ -427,55 +431,19 @@ private[run] object StateMachine extends LazyLogging {
 
   class DelayedPipeMachine[In, Out](val transform: DelayedPipe[In, Out], val graph: GraphOps)
                                    (implicit val ec: ExecutionContext) extends ConsumerProvider[In] with StateMachineWithOneOutput[Out] {
-
-    /** Runs the concrete Pipe produced by a DelayedPipe's future as a separate materialized stream,
-      * interfacing with the main stream via a queue. */
-    private class SubsidiaryStream(pipe: Pipe[In, Out], consumerOnNext: Func[Out, Unit], consumerOnComplete: Func[Unit, Unit])
-                                  (implicit ec: ExecutionContext) {
-      val inputQueue = new BoundedAsyncQueue[Option[In]](1)
-
-      val substream = Source.from(inputQueue).to(pipe).foreachFunc(
-        consumerOnNext,
-        consumerOnComplete,
-        Func(e => graph.failGraph(e)) // Fail the parent stream
-      ).build()
-
-      substream.completion recover {
-        case NonFatal(e) =>
-          graph.failGraph(e)
-      }
-
-      val onNext = new AsyncFunc[In, Unit] {
-        override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = {
-          inputQueue.enqueue(Some(in))
-        }
-      }
-
-      val onComplete = new AsyncFunc[Unit, Unit] {
-        override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
-          inputQueue.enqueue(None) flatMap (_ => substream.completion)
-        }
-      }
-
-      val onError = Func((th: Throwable) => substream.fail(th))
-    }
-
     override val running: RunningTransform[In, Out] = RunningTransform(completionPromise.future, transform)
 
-    // Copy of user function
-    private val transformOnError = transform.onError
+    @volatile private var substreamOnError: SyncFunc[Throwable, Unit] = Func.nop
 
     // Not a val because `substreamOnError` might be assigned later, when the substream has been materialized
     override def userOnError: Func[Throwable, Unit] = {
       substreamOnError match {
-        case null => transformOnError
-        case func => Func.tee(transformOnError, func)
+        case null => transform.onError
+        case func => Func.tee(transform.onError, func)
       }
     }
-
-    @volatile private var substreamOnError: SyncFunc[Throwable, Unit] = Func.nop
-
-    override def consumer: Consumer[In] = {
+    
+    override lazy val consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       // Acquire copies of next component's functions
@@ -483,49 +451,47 @@ private[run] object StateMachine extends LazyLogging {
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
-      val afterCompleting = Func(completionPromise.success(())) ~> Func(())
+      val substream = new FastFuture(
+        new FastFuture(transform.future) flatMap { case pipe =>
+          val driver = Source.driven[In]()(pipe.builder)
+          val stream = driver.to(pipe).foreachFunc(
+            consumerOnNext, consumerOnComplete,
+            Func((e: Throwable) => graph.failGraph(e))
+          ).build()
 
-      val (onNext, onComplete) = {
-        val DelayedPipe(builder, future) = transform
+          substreamOnError = Func((e: Throwable) => stream.fail(e))
 
-        future.value match {
-          case Some(Success(pipe)) =>
-            val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
-            substreamOnError = substream.onError
-            (substream.onNext, substream.onComplete)
+          new FastFuture(driver.aside) map {
+            case drv => (drv, stream)
+          }
+        }
+      )
 
-          case Some(Failure(e)) => throw e
-
-          case None =>
-            val futureSubstream = new FastFuture(future map (pipe => {
-              val substream = new SubsidiaryStream(pipe, consumerOnNext, consumerOnComplete)
-              substreamOnError = substream.onError
-              substream
-            }))
-
-            val onNext = new AsyncFunc[In, Unit] {
-              override def apply(a: In)(implicit ec: ExecutionContext): Future[Unit] = {
-                futureSubstream flatMap (_.onNext(a))
-              }
-            }
-
-            val onComplete = new AsyncFunc[Unit, Unit] {
-              override def apply(a: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
-                futureSubstream flatMap (_.onComplete(a))
-              }
-            }
-
-            (onNext, onComplete)
+      val onNext = new AsyncFunc[In, Unit] {
+        override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = substream flatMap {
+          case (drv, stream) => drv.onNext match {
+            case syncf: SyncFunc[In, Unit] => FastFuture.successful(syncf(in))
+            case asyncf: AsyncFunc[In, Unit] => asyncf(in)
+          }
         }
       }
 
-      Consumer(onNext composeFailure (graph.failGraph), onComplete ~> afterCompleting composeFailure (graph.failGraph))
+      val onComplete = new AsyncFunc[Unit, Unit] {
+        override def apply(in: Unit)(implicit ec: ExecutionContext): Future[Unit] = substream flatMap {
+          case (drv, stream) => drv.onComplete match {
+            case syncf: SyncFunc[Unit, Unit] => FastFuture.successful(syncf(in))
+            case asyncf: AsyncFunc[Unit, Unit] => asyncf(in)
+          }
+        }
+      }
+
+      Consumer(onNext composeFailure (graph.failGraph), onComplete composeFailure (graph.failGraph))
     }
   }
 
   class NopMachine[T](val nop: NopTransform[T], val graph: GraphOps)
                      (implicit val ec: ExecutionContext) extends ConsumerProvider[T] with StateMachineWithOneOutput[T] {
-    override def consumer: Consumer[T] = {
+    override lazy val consumer: Consumer[T] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
       next.get.consumer
@@ -547,8 +513,8 @@ private[run] object StateMachine extends LazyLogging {
     private val queue = new BoundedAsyncQueue[Option[T]](1)
 
     // The same consumer is used for all inputs, and is concurrent-safe.
-    override def consumer: Consumer[T] = {
-      require(consumers(0).isDefined, "Graph must be fully linked before running")
+    override lazy val consumer: Consumer[T] = {
+      require(nexts(0).isDefined, "Graph must be fully linked before running")
 
       // Assume queue.enqueue can't fail and skip the recovery stuff
       val onNext = AsyncFunc[T, Unit](t => queue.enqueue(Some(t)))
@@ -564,10 +530,10 @@ private[run] object StateMachine extends LazyLogging {
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
     override def run(): Unit = {
-      require(consumers(0).isDefined, s"Graph must be fully linked before running")
+      require(nexts(0).isDefined, s"Graph must be fully linked before running")
 
       // Acquire copies of user functions
-      val consumer = consumers(0).get.consumer
+      val consumer = nexts(0).get.consumer
       val consumerOnNext = consumer.onNext
       val consumerOnComplete = consumer.onComplete
 
@@ -617,8 +583,8 @@ private[run] object StateMachine extends LazyLogging {
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
-    override def consumer: Consumer[T] = {
-      val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
+    override lazy val consumer: Consumer[T] = {
+      val outputs = nexts.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
 
       def chooseOutputs(indexes: BitSet): Vector[Func[T, _]] = {
         val iter = indexes.iterator
@@ -652,8 +618,8 @@ private[run] object StateMachine extends LazyLogging {
 
     override def userOnError: Func[Throwable, Unit] = Func.nop
 
-    override def consumer: Consumer[T] = {
-      val outputs = consumers.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
+    override lazy val consumer: Consumer[T] = {
+      val outputs = nexts.map(_.getOrElse(throw new IllegalArgumentException("Graph must be fully linked before running")))
 
       // Naive implementation, could probably be optimized
       // The `free` queue holds all consumers that are available at that moment
@@ -700,10 +666,10 @@ private[run] object StateMachine extends LazyLogging {
     private val promises = Vector.fill(connector.inputCount)(Promise[Unit]())
     promises(0).success(())
 
-    override def consumer(index: Int): Consumer[T] = {
-      require(consumers(0).isDefined, "Graph must be fully linked before running")
+    override lazy val consumers: IndexedSeq[Consumer[T]] = for (index <- 0 until connector.inputCount) yield {
+      require(nexts(0).isDefined, "Graph must be fully linked before running")
 
-      val Consumer(userOnNext, userOnComplete) = consumers(0).get.consumer
+      val Consumer(userOnNext, userOnComplete) = nexts(0).get.consumer
 
       val future = promises(index).future
       val nextPromise = if (index < promises.size - 1) promises(index + 1) else promises(0)
@@ -718,7 +684,8 @@ private[run] object StateMachine extends LazyLogging {
         ()
       })
 
-      val onComplete2 = if (index < promises.size - 1) onComplete else {
+      val onComplete2 = if (index < promises.size - 1) onComplete
+      else {
         onComplete ~> userOnComplete
       }
 
@@ -727,5 +694,6 @@ private[run] object StateMachine extends LazyLogging {
 
     override val userOnError: Func[Throwable, Unit] = (e: Throwable) => promises.foreach(_.tryFailure(e))
   }
+
 }
 
