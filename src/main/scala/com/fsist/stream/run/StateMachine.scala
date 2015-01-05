@@ -332,10 +332,10 @@ private[run] object StateMachine extends LazyLogging {
         override def apply(in: In)(implicit ec: ExecutionContext): Future[Unit] = {
           // Privilege performance of already-completed case
           substreamOnNext.future.value match {
-            case Some(Success(onNext: SyncFunc[In, Unit])) => Future.successful(onNext(in))
+            case Some(Success(onNext: SyncFunc[In, Unit])) => FastFuture.successful(onNext(in))
             case Some(Success(onNext: AsyncFunc[In, Unit])) => onNext(in)
             case Some(Failure(e)) => throw e
-            case None => substreamOnNext.future map (_ => apply(in))
+            case None => substreamOnNext.future flatMap (_ => apply(in))
           }
         }
       }
@@ -344,10 +344,10 @@ private[run] object StateMachine extends LazyLogging {
         override def apply(in: Unit)(implicit ec: ExecutionContext): Future[Unit] = {
           // Privilege performance of already-completed case
           (substreamOnComplete.future.value match {
-            case Some(Success(onNext: SyncFunc[Unit, Unit])) => Future.successful(onNext(in))
+            case Some(Success(onNext: SyncFunc[Unit, Unit])) => FastFuture.successful(onNext(in))
             case Some(Success(onNext: AsyncFunc[Unit, Unit])) => onNext(in)
             case Some(Failure(e)) => throw e
-            case None => substreamOnNext.future map (_ => apply(in))
+            case None => substreamOnNext.future flatMap (_ => apply(in))
           }) flatMap (_ => resultPromise.future) flatMap (_ => substream.future) flatMap (_.completion)
         }
       }
