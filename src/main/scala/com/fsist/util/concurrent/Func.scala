@@ -1,6 +1,7 @@
 package com.fsist.util.concurrent
 
 import akka.http.util.FastFuture
+import com.typesafe.scalalogging.LazyLogging
 
 import scala.annotation.tailrec
 import scala.concurrent.{ExecutionContext, Future}
@@ -85,7 +86,7 @@ sealed trait Func[-A, +B] {
   }
 }
 
-object Func {
+object Func extends LazyLogging {
   /** Constructs a synchronous function from an ordinary Scala function. */
   implicit def apply[A, B](f: A => B): SyncFunc[A, B] = SyncFunc(f)
 
@@ -237,10 +238,10 @@ object Func {
       }
   }
 
-  /** A convenient debugging function that calls println() for all values it passes along */
+  /** A convenient debugging function that calls `logger.info` for all values it passes along */
   def log[T](msg: String): SyncFunc[T, T] = new SyncFunc[T, T] {
     override def apply(t: T): T = {
-      println(s"$msg: $t")
+      logger.info(s"$msg: $t")
       t
     }
   }
