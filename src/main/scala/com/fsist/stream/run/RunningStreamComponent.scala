@@ -27,7 +27,7 @@ case class RunningInput[+Out](completion: Future[Unit],
 /** @param result succeeds or fails together with `completion`, but contains the calculated result if it succeeds. */
 case class RunningOutput[-In, +Res](result: Future[Res])
                                    (implicit ec: ExecutionContext) extends RunningStreamComponent {
-  override def completion: Future[Unit] = result map (_ => ())
+  override val completion: Future[Unit] = result map (_ => ())
 }
 
 case class RunningTransform[-In, +Out](completion: Future[Unit],

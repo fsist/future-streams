@@ -198,4 +198,32 @@ class TransformTest extends FunSuite with StreamTester {
     val result = Source.from(data).prepend(extra).collect[List].singleResult.futureValue
     assert(result == extra ++ data)
   }
+
+  test("Completion: TransformMachine") {
+    val tr = Transform.map((x: Int) => x)
+    val stream = Source.from(1 to 10).to(tr).discard().build()
+    stream.completion.futureValue
+    assert(stream(tr).completion.isCompleted)
+  }
+
+  test("Completion: DelayedPipeMachine") {
+    val promise = Promise[Pipe[Int, Int]]()
+    val pipe: Pipe[Int, Int] = Pipe.flatten(promise.future)
+    val stream = Source.from(1 to 10).to(pipe).discard().build()
+    promise.success(Transform.map((x: Int) => x))
+    stream.completion.futureValue
+
+    // No explicit component for the pipe...
+    for (component <- stream.components.values) {
+      assert(component.completion.isCompleted)
+    }
+  }
+
+  // TODO not yet implemented
+  ignore("Completion: NopMachine") {
+    val tr = Transform.nop[Int]
+    val stream = Source.from(1 to 10).to(tr).discard().build()
+    stream.completion.futureValue
+    assert(stream(tr).completion.isCompleted)
+  }
 }

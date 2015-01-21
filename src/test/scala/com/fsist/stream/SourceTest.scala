@@ -174,4 +174,34 @@ class SourceTest extends FunSuite with StreamTester {
 
     assert(result.futureValue == data)
   }
+
+  test("Completion: ProducerMachine") {
+    val source = Source.from(1 to 10)
+    val stream = source.discard().build()
+    stream.completion.futureValue
+    assert(stream.components(source).completion.isCompleted)
+  }
+
+  test("Completion: DelayedSourceMachine") {
+    val promise = Promise[Source[Int]]()
+    val source = Source.flatten[Int](promise.future)
+    val stream = source.discard().build()
+    promise.success(Source.from(1 to 10))
+    stream.completion.futureValue
+    assert(stream.components(source).completion.isCompleted)
+  }
+
+  test("Completion: DrivenSourceMachine") {
+    val source = Source.driven[Int]
+    val stream = source.discard().build()
+
+    val consumer = source.aside.futureValue(impatience)
+    assert(consumer.onNext.isSync)
+    consumer.onNext.asSync(1)
+    assert(consumer.onComplete.isSync)
+    consumer.onComplete.asSync(())
+
+    stream.completion.futureValue(impatience)
+    assert(stream.components(source).completion.isCompleted)
+  }
 }

@@ -214,6 +214,8 @@ private[run] object StateMachine extends LazyLogging {
       sub.completion recover {
         case NonFatal(e) => graph.failGraph(e)
       }
+
+      completionPromise.completeWith(sub.completion)
     }
 
     override def userOnError: Func[Throwable, Unit] = (e: Throwable) => {
@@ -247,9 +249,9 @@ private[run] object StateMachine extends LazyLogging {
       val impl = new StreamConsumerBase[Out, Unit] {
         override def onNext: Func[Out, Unit] = passUnlessFailed[Out] ~> consumerOnNext
 
-        override def onComplete: Func[Unit, Unit] = passUnlessFailed[Unit] ~> consumerOnComplete
+        override def onComplete: Func[Unit, Unit] = passUnlessFailed[Unit] ~> consumerOnComplete ~> Func(completionPromise.trySuccess(())) ~> Func.nop
 
-        override def onError: Func[Throwable, Unit] = Func.nop
+        override def onError: Func[Throwable, Unit] = Func(e => completionPromise.tryFailure(e))
 
         override def builder: FutureStreamBuilder = input.builder
       }
@@ -324,6 +326,7 @@ private[run] object StateMachine extends LazyLogging {
       }
 
       resultPromise.completeWith(sub.apply[Nothing, Res](sink.output).result)
+      resultPromise.future map (_ => completionPromise.trySuccess(()))
 
       failed match {
         case Some(e) => sub.fail(e)
@@ -442,7 +445,7 @@ private[run] object StateMachine extends LazyLogging {
         case func => Func.tee(transform.onError, func)
       }
     }
-    
+
     override lazy val consumer: Consumer[In] = {
       require(next.isDefined, "Graph must be fully linked before running")
 
@@ -485,7 +488,10 @@ private[run] object StateMachine extends LazyLogging {
         }
       }
 
-      Consumer(onNext composeFailure (graph.failGraph), onComplete composeFailure (graph.failGraph))
+      Consumer(
+        onNext composeFailure (graph.failGraph),
+        onComplete ~> Func(completionPromise.trySuccess(())) ~> Func.nop composeFailure (graph.failGraph)
+      )
     }
   }
 
@@ -686,7 +692,7 @@ private[run] object StateMachine extends LazyLogging {
 
       val onComplete2 = if (index < promises.size - 1) onComplete
       else {
-        onComplete ~> userOnComplete
+        onComplete ~> userOnComplete ~> completionPromise.trySuccess(()) ~> Func.nop
       }
 
       Consumer(onNext, onComplete2)

@@ -3,7 +3,7 @@ package com.fsist.stream
 import com.fsist.util.concurrent.Func
 import org.scalatest.FunSuite
 import org.scalatest.concurrent.PatienceConfiguration.Timeout
-import scala.concurrent.Promise
+import scala.concurrent.{Future, Promise}
 import scala.concurrent.duration._
 
 class SinkTest extends FunSuite with StreamTester {
@@ -99,4 +99,19 @@ class SinkTest extends FunSuite with StreamTester {
     assert(result.failed.futureValue == error)
   }
 
+  test("Completion: ConsumerMachine") {
+    val sink = Sink.foreach[Int, Unit](x => ())
+    val stream = Source.from(1 to 10).to(sink).build()
+    stream.completion.futureValue(impatience)
+    assert(stream.components(sink).completion.isCompleted)
+  }
+
+  test("Completion: DelayedSinkMachine") {
+    val promise = Promise[Sink[Int, Unit]]()
+    val sink = Sink.flatten(promise.future)
+    val stream = Source.from(1 to 10).to(sink).build()
+    promise.success(Sink.foreach[Int, Unit](x => ()))
+    stream.completion.futureValue(impatience)
+    assert(stream.components(sink).completion.isCompleted)
+  }
 }

@@ -225,4 +225,15 @@ class ConnectorTest extends FunSuite with StreamTester {
 
     stream(merger).completion.futureValue(Timeout(1.second))
   }
+
+  test("Concatenator completion promise is fulfilled") {
+    val concat = Connector.concatenate[Int](2)
+
+    for (input <- concat.inputs) {
+      Source.from(1 to 10).to(input)
+    }
+    val stream = concat.output.discard().build()
+    stream.completion.futureValue
+    assert(stream(concat).completion.isCompleted)
+  }
 }
