@@ -5,6 +5,11 @@ task wrapper(type: Wrapper) {
 }
 
 apply plugin: 'scala'
+apply plugin: 'maven'
+apply plugin: 'signing'
+
+group = 'com.fsist'
+version = '0.8.0'
 
 // Can't set targetCompatibility (i.e. JDK level) to 1.7 or above because of https://issues.scala-lang.org/browse/SI-8645
 // Which was due to JDK bug https://bugs.openjdk.java.net/browse/JDK-8046233 which was fixed in JDK 7u76 / 8u25 (but we don't have those new versions yet)
@@ -20,8 +25,6 @@ repositories {
   mavenCentral()
 }
 
-version = '0.8.0'
-
 dependencies {
   compile 'org.scala-lang:scala-library:2.11.6'
   compile 'org.scala-lang:scala-reflect:2.11.6'
@@ -32,6 +35,88 @@ dependencies {
   testCompile 'ch.qos.logback:logback-classic:1.1.2'
   testCompile 'org.scalatest:scalatest_2.11:2.2.1'
   testCompile 'org.pegdown:pegdown:1.4.2'
+}
+
+/* DEPLOYMENT */
+
+project.archivesBaseName = project.name + "_2.11"
+
+task sourcesJar(type: Jar) {
+  classifier = 'sources'
+  from sourceSets.main.allSource
+}
+
+task scaladocJar(type: Jar, dependsOn: scaladoc) {
+  classifier = 'javadoc'
+  from scaladoc.destinationDir
+}
+
+task testJar(type: Jar, dependsOn: compileTestScala) {
+  from compileTestScala.destinationDir
+  appendix 'test' // Names the jar
+}
+
+signing {
+  sign jar
+  sign sourcesJar
+  sign scaladocJar
+}
+
+artifacts {
+  archives jar
+  archives sourcesJar
+  archives scaladocJar
+}
+
+uploadArchives {
+  repositories {
+    mavenDeployer {
+      beforeDeployment { MavenDeployment deployment -> signing.signPom(deployment) }
+
+      repository(url: "https://oss.sonatype.org/service/local/staging/deploy/maven2/") {
+        authentication(userName: ossrhUsername, password: ossrhPassword)
+      }
+
+      snapshotRepository(url: "https://oss.sonatype.org/content/repositories/snapshots/") {
+        authentication(userName: ossrhUsername, password: ossrhPassword)
+      }
+
+      pom.project {
+        name 'safepickle'
+        artifactId = project.name + '_2.11'
+
+        packaging 'jar'
+        description 'A small Scala pickling library.'
+        url 'https://github.com/fsist/safepickle'
+
+        scm {
+          connection 'scm:git:git@github.com:fsist/safepickle.git'
+          developerConnection 'git@github.com:fsist/safepickle.git'
+          url 'https://github.com/fsist/safepickle'
+        }
+
+        organization {
+          name = 'Sentrix'
+          url = 'http://www.sentrix.com/'
+        }
+
+        licenses {
+          license {
+            name 'The Apache License, Version 2.0'
+            url 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+          }
+        }
+
+        developers {
+          developer {
+            id 'danarmak'
+            name 'Daniel Armak'
+            email 'daniel@sentrix.com'
+          }
+        }
+      }
+    }
+  }
 }
 
 /* TESTS */
