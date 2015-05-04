@@ -20,12 +20,12 @@ repositories {
   mavenCentral()
 }
 
-version = '0.7'
+version = '0.8.0'
 
 dependencies {
-  compile 'org.scala-lang:scala-library:2.11.4'
-  compile 'org.scala-lang:scala-reflect:2.11.4'
-  compile 'org.scala-lang:scala-compiler:2.11.4'
+  compile 'org.scala-lang:scala-library:2.11.6'
+  compile 'org.scala-lang:scala-reflect:2.11.6'
+  compile 'org.scala-lang:scala-compiler:2.11.6'
 
   compile 'com.typesafe.scala-logging:scala-logging_2.11:3.1.0'
 
