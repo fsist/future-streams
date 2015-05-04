@@ -121,11 +121,6 @@ uploadArchives {
 
 /* TESTS */
 
-task testJar(type: Jar, dependsOn: compileTestScala) {
-  from compileTestScala.destinationDir
-  appendix 'test' // Names the jar
-}
-
 task scalatest(type: JavaExec, dependsOn: [ compileTestScala, testJar] ) {
   maxHeapSize '4096M'
   main 'org.scalatest.tools.Runner'
