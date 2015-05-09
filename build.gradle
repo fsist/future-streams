@@ -86,13 +86,13 @@ uploadArchives {
         artifactId = project.name + '_2.11'
 
         packaging 'jar'
-        description 'A small Scala pickling library.'
-        url 'https://github.com/fsist/safepickle'
+        description 'Scala Future-based implementation of Reactive Streams'
+        url 'https://github.com/fsist/future-streams'
 
         scm {
-          connection 'scm:git:git@github.com:fsist/safepickle.git'
-          developerConnection 'git@github.com:fsist/safepickle.git'
-          url 'https://github.com/fsist/safepickle'
+          connection 'scm:git:git@github.com:fsist/future-streams.git'
+          developerConnection 'git@github.com:fsist/future-streams.git'
+          url 'https://github.com/fsist/future-sterams'
         }
 
         organization {
