@@ -9,7 +9,7 @@ apply plugin: 'maven'
 apply plugin: 'signing'
 
 group = 'com.fsist'
-version = '0.8.0'
+version = '0.9.0'
 
 // Can't set targetCompatibility (i.e. JDK level) to 1.7 or above because of https://issues.scala-lang.org/browse/SI-8645
 // Which was due to JDK bug https://bugs.openjdk.java.net/browse/JDK-8046233 which was fixed in JDK 7u76 / 8u25 (but we don't have those new versions yet)
