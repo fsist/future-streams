@@ -31,10 +31,12 @@ dependencies {
   compile 'org.scala-lang:scala-compiler:2.11.6'
 
   compile 'com.typesafe.scala-logging:scala-logging_2.11:3.1.0'
+  compile 'org.reactivestreams:reactive-streams:1.0.0'
 
   testCompile 'ch.qos.logback:logback-classic:1.1.2'
   testCompile 'org.scalatest:scalatest_2.11:2.2.1'
   testCompile 'org.pegdown:pegdown:1.4.2'
+  compile 'org.reactivestreams:reactive-streams-tck:1.0.0'
 }
 
 /* DEPLOYMENT */

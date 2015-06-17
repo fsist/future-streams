@@ -1,9 +1,12 @@
 package com.fsist.stream
 
+import java.util.concurrent.atomic.{AtomicLong, AtomicInteger, AtomicReference}
+
 import akka.http.util.FastFuture
 import com.fsist.stream.Transform.Aside
 import com.fsist.stream.run.FutureStreamBuilder
 import com.fsist.util.concurrent._
+import org.reactivestreams.{Subscriber, Subscription, Publisher}
 
 import scala.concurrent.{Promise, ExecutionContext, Future}
 import scala.util.control.ControlThrowable
@@ -228,6 +231,64 @@ object Source {
       case Some(out) => out
       case None => throw new EndOfStreamException
     })
+
+  /** Creates an input that forwards the elements produced by this Reactive Streams Publisher.
+    *
+    * Subscribes to the Publisher only once the stream starts running.
+    *
+    * @param requestAtOnce how many stream elements to request() from the publisher every time it has delivered that
+    *                      many elements. The value Long.MaxValue is defined by Reactive Streams as meaning 'unbounded'.
+    */
+  def from[Out](publisher: Publisher[_ <: Out], requestAtOnce: Long = 1L)
+               (implicit b: FutureStreamBuilder, ec: ExecutionContext): StreamInput[Out] =
+    new AsyncStreamProducer[Out] {
+      private val subscription = new AtomicReference[Subscription]
+      private val queue = new AsyncQueue[Option[Out]]()
+      private val requested = new AtomicLong(0L)
+
+      private def failStream(t: Throwable): Unit = {
+        new FastFuture(b.runningStream).map(_.fail(t))
+      }
+
+      // Subscribe to the publisher when the stream starts running and `produce` is called for the first time
+      private lazy val subscriber = {
+        val subscriber = new Subscriber[Out] {
+          override def onError(t: Throwable): Unit = failStream(t)
+
+          override def onSubscribe(s: Subscription): Unit = {
+            if (!subscription.compareAndSet(null, s)) {
+              failStream(new IllegalArgumentException(s"onSubscribe called twice by Publisher"))
+            }
+
+            // Always start by requesting something
+            requested.addAndGet(requestAtOnce)
+            s.request(requestAtOnce)
+          }
+
+          override def onComplete(): Unit = queue.enqueue(None)
+          override def onNext(t: Out): Unit = queue.enqueue(Some(t))
+        }
+
+        publisher.subscribe(subscriber)
+        subscriber
+      }
+
+      override def produce()(implicit ec: ExecutionContext): Future[Out] = {
+        // Subscribe by forcing lazy val
+        subscriber
+
+        queue.dequeue() map { dequeued =>
+          if (requested.decrementAndGet() == 0) {
+            subscription.get.request(requestAtOnce)
+            requested.addAndGet(requestAtOnce)
+          }
+          dequeued match {
+            case Some(t) => t
+            case None => throw new EndOfStreamException
+          }
+        }
+      }
+    }
 
   /** A way to push data into a running stream from the outside. Use with `Source.pusher`.
     *
